@@ -1,0 +1,9 @@
+{
+  "name": "RWR LMS Gemini API",
+  "type": "httpHeaderAuth",
+  "data": {
+    "name": "x-goog-api-key",
+    "value": "REPLACE_WITH_GEMINI_API_KEY"
+  },
+  "_comment": "Used as HTTP Header Auth for direct Gemini API calls. Get your key at: https://aistudio.google.com/app/apikey. The key is also available as $env.GEMINI_API_KEY in workflow Code nodes."
+}

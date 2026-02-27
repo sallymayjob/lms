@@ -1,0 +1,12 @@
+{
+  "name": "RWR LMS Google Sheets",
+  "type": "googleSheetsOAuth2Api",
+  "data": {
+    "clientId": "REPLACE_WITH_GOOGLE_CLIENT_ID",
+    "clientSecret": "REPLACE_WITH_GOOGLE_CLIENT_SECRET",
+    "scope": "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file",
+    "authUrl": "https://accounts.google.com/o/oauth2/auth",
+    "accessTokenUrl": "https://oauth2.googleapis.com/token"
+  },
+  "_comment": "Set up OAuth2: Google Cloud Console > APIs & Services > Credentials > OAuth 2.0 Client IDs. Add your n8n domain as an authorised redirect URI: https://YOUR_DOMAIN/rest/oauth2-credential/callback"
+}

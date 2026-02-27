@@ -1,0 +1,443 @@
+{
+  "id": "a18LessonPublisher1",
+  "name": "Agent 18 — Lesson Publisher",
+  "active": false,
+  "version": 1,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook: Publish Lesson",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "publish-lesson",
+      "parameters": {
+        "path": "publish-lesson",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "validate-token",
+      "name": "Validate Publish Token",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst headers = $input.first().json.headers || {};\n\nconst providedToken = headers['x-publish-token'] || headers['X-Publish-Token'] || body.publishToken || '';\nconst expectedToken = $env.PUBLISH_SECRET || '';\n\nif (!expectedToken) {\n  throw new Error('PUBLISH_SECRET environment variable is not set');\n}\n\nif (providedToken !== expectedToken) {\n  return [{\n    json: {\n      authorized: false,\n      lessonID: null,\n      error: 'Invalid or missing X-Publish-Token header'\n    }\n  }];\n}\n\nconst lessonID = body.lesson_id || body.lessonID;\nif (!lessonID) {\n  return [{\n    json: {\n      authorized: false,\n      lessonID: null,\n      error: 'Missing required field: lesson_id'\n    }\n  }];\n}\n\nreturn [{\n  json: {\n    authorized: true,\n    lessonID\n  }\n}];"
+      }
+    },
+    {
+      "id": "check-authorized",
+      "name": "IF: Authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.authorized }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-401",
+      "name": "Respond: 401 Unauthorized",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 480],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'error', message: $('Validate Publish Token').first().json.error || 'Unauthorized' }) }}",
+        "options": {
+          "responseCode": 401
+        }
+      }
+    },
+    {
+      "id": "read-lesson",
+      "name": "Postgres: Read Approved Lesson",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [900, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM lessons WHERE lesson_id = $1 AND publication_status = 'APPROVED'",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.lessonID]) }}"
+        }
+      }
+    },
+    {
+      "id": "check-lesson-found",
+      "name": "IF: Lesson Found and APPROVED?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1120, 300],
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{ $input.length }}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-404",
+      "name": "Respond: 404 Not Found",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 480],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"error\", \"message\": \"Lesson not found or not in APPROVED status\" }",
+        "options": {
+          "responseCode": 404
+        }
+      }
+    },
+    {
+      "id": "parse-lesson-id",
+      "name": "Parse Lesson ID and Build Course Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "parameters": {
+        "jsCode": "const lesson = $input.first().json;\n\n// Parse lesson_id format: M##-W##-L##\nconst match = lesson.lesson_id.match(/^M(\\d+)-W(\\d+)-L(\\d+)$/i);\nif (!match) {\n  throw new Error(`Invalid lesson_id format: ${lesson.lesson_id}. Expected M##-W##-L##`);\n}\n\nconst month = parseInt(match[1]);\nconst week = parseInt(match[2]);\nconst lessonNum = parseInt(match[3]);\n\n// Build course code from month\nconst monthPadded = String(month).padStart(2, '0');\nconst courseCode = `M${monthPadded}-COURSE`;\nconst courseTitle = `Month ${month}: ${getCourseTitle(month)}`;\n\nfunction getCourseTitle(m) {\n  const titles = {\n    1: 'Recruiting Foundations',\n    2: 'Sourcing Mastery',\n    3: 'Candidate Experience',\n    4: 'Interview Excellence',\n    5: 'Offer & Negotiation',\n    6: 'Onboarding Strategy',\n    7: 'Data-Driven Recruiting',\n    8: 'Employer Brand',\n    9: 'Executive Search',\n    10: 'Talent Intelligence',\n    11: 'Strategic Workforce Planning',\n    12: 'Leadership & Influence'\n  };\n  return titles[m] || `Month ${m} Content`;\n}\n\n// Position in the LMS = (week - 1) * lessons_per_week + lesson_num\n// Use a flat position for simplicity: sequential within the course\nconst position = ((week - 1) * 5) + lessonNum;\n\nreturn [{\n  json: {\n    ...lesson,\n    parsedMonth: month,\n    parsedWeek: week,\n    parsedLessonNum: lessonNum,\n    courseCode,\n    courseTitle,\n    modulePosition: position,\n    moduleTitle: `Week ${week}, Lesson ${lessonNum}: ${(lesson.hook || '').slice(0, 60)}${lesson.hook && lesson.hook.length > 60 ? '...' : ''}`\n  }\n}];"
+      }
+    },
+    {
+      "id": "get-or-create-course",
+      "name": "Postgres: Get or Create Course",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO courses (code, title, description) VALUES ($1, $2, $3) ON CONFLICT (code) DO UPDATE SET title = EXCLUDED.title RETURNING id, code, title",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.courseCode, $json.courseTitle, 'Auto-created by Agent 18 Lesson Publisher']) }}"
+        }
+      }
+    },
+    {
+      "id": "upsert-module",
+      "name": "Postgres: Upsert Module",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO modules (course_id, title, content, position) VALUES ($1, $2, $3, $4) ON CONFLICT (course_id, position) DO UPDATE SET content = EXCLUDED.content, title = EXCLUDED.title RETURNING id",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$('Postgres: Get or Create Course').first().json.id, $('Parse Lesson ID and Build Course Code').first().json.moduleTitle, $('Parse Lesson ID and Build Course Code').first().json.slack_formatted || $('Parse Lesson ID and Build Course Code').first().json.core_content, $('Parse Lesson ID and Build Course Code').first().json.modulePosition]) }}"
+        }
+      }
+    },
+    {
+      "id": "notion-sync",
+      "name": "HTTP: Notion QA Metadata Sync",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.WEBHOOK_URL }}webhook/notion-sync",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "lessonID": "={{ $('Parse Lesson ID and Build Course Code').first().json.lesson_id }}",
+          "qa_score": "={{ $('Parse Lesson ID and Build Course Code').first().json.qa_score }}",
+          "qa_verdict": "={{ $('Parse Lesson ID and Build Course Code').first().json.qa_verdict }}",
+          "notion_db_id": "={{ $env.NOTION_LESSONS_DB_ID }}"
+        },
+        "options": {
+          "ignore4xxStatusCodes": true,
+          "ignore5xxStatusCodes": true
+        }
+      }
+    },
+    {
+      "id": "check-notion-enabled",
+      "name": "IF: Notion Sync Enabled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2000, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $env.NOTION_SYNC_ENABLED }}",
+              "operation": "equal",
+              "value2": "true"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "update-lesson-published",
+      "name": "Postgres: Mark Lesson PUBLISHED",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [2220, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE lessons SET publication_status = 'PUBLISHED', updated_at = NOW() WHERE lesson_id = $1 RETURNING lesson_id, publication_status, qa_score, qa_verdict",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$('Parse Lesson ID and Build Course Code').first().json.lesson_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "slack-publish-confirm",
+      "name": "HTTP: Slack Publish Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2440, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_ADMIN_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "✅ Lesson Published — {{ $('Parse Lesson ID and Build Course Code').first().json.lesson_id }}"
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*QA Score:*\n{{ $('Parse Lesson ID and Build Course Code').first().json.qa_score }} ({{ $('Parse Lesson ID and Build Course Code').first().json.qa_verdict }})"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Course:*\n{{ $('Parse Lesson ID and Build Course Code').first().json.courseCode }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Module:* Position {{ $('Parse Lesson ID and Build Course Code').first().json.modulePosition }} — {{ $('Parse Lesson ID and Build Course Code').first().json.moduleTitle }}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-publish-success",
+      "name": "Respond: 200 Publish Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2660, 300],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ status: 'ok', message: 'Lesson published', lesson_id: $('Parse Lesson ID and Build Course Code').first().json.lesson_id, course_code: $('Parse Lesson ID and Build Course Code').first().json.courseCode, module_position: $('Parse Lesson ID and Build Course Code').first().json.modulePosition, qa_score: $('Parse Lesson ID and Build Course Code').first().json.qa_score, qa_verdict: $('Parse Lesson ID and Build Course Code').first().json.qa_verdict }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Publish Lesson": {
+      "main": [
+        [
+          {
+            "node": "Validate Publish Token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Publish Token": {
+      "main": [
+        [
+          {
+            "node": "IF: Authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Authorized?": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Read Approved Lesson",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: 401 Unauthorized",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Read Approved Lesson": {
+      "main": [
+        [
+          {
+            "node": "IF: Lesson Found and APPROVED?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Lesson Found and APPROVED?": {
+      "main": [
+        [
+          {
+            "node": "Parse Lesson ID and Build Course Code",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: 404 Not Found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Lesson ID and Build Course Code": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Get or Create Course",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Get or Create Course": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Upsert Module",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Upsert Module": {
+      "main": [
+        [
+          {
+            "node": "IF: Notion Sync Enabled?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Notion Sync Enabled?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Notion QA Metadata Sync",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres: Mark Lesson PUBLISHED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Notion QA Metadata Sync": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Mark Lesson PUBLISHED",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Mark Lesson PUBLISHED": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Slack Publish Confirmation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Slack Publish Confirmation": {
+      "main": [
+        [
+          {
+            "node": "Respond: 200 Publish Success",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["content-factory", "agent-18"],
+  "triggerCount": 1,
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}

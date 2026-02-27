@@ -1,0 +1,130 @@
+{
+  "name": "Agent 13 — Onboarding Agent (Gemini)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ad130000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO users (slack_user_id, slack_team_id, display_name)\nVALUES ($1, $2, $3)\nON CONFLICT (slack_user_id) DO UPDATE\n  SET display_name = EXCLUDED.display_name,\n      updated_at = NOW()\nRETURNING id, display_name, created_at,\n  (created_at = updated_at) AS is_new_user;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id, $json.team_id, $json.user_name]) }}"
+        }
+      },
+      "id": "ad130000-0000-0000-0000-000000000002",
+      "name": "Upsert User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  c.id AS course_id,\n  c.title,\n  c.code,\n  c.description,\n  (\n    SELECT id FROM modules WHERE course_id = c.id ORDER BY position ASC LIMIT 1\n  ) AS first_module_id,\n  (\n    SELECT COUNT(*) FROM modules WHERE course_id = c.id\n  ) AS total_modules,\n  (\n    SELECT id FROM enrolments\n    WHERE user_id = $1\n      AND course_id = c.id\n  ) AS existing_enrolment_id\nFROM courses c\nWHERE c.code LIKE 'OB-%'\nORDER BY c.code;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Upsert User').item.json.id]) }}"
+        }
+      },
+      "id": "ad130000-0000-0000-0000-000000000003",
+      "name": "Get Onboarding Courses",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO enrolments (user_id, course_id, current_module_id)\nSELECT\n  $1,\n  c.id,\n  (SELECT id FROM modules WHERE course_id = c.id ORDER BY position ASC LIMIT 1)\nFROM courses c\nWHERE c.code LIKE 'OB-%'\n  AND NOT EXISTS (\n    SELECT 1 FROM enrolments e2\n    WHERE e2.user_id = $1\n      AND e2.course_id = c.id\n  )\nRETURNING course_id;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Upsert User').item.json.id]) }}"
+        }
+      },
+      "id": "ad130000-0000-0000-0000-000000000004",
+      "name": "Auto-Enrol in OB Courses",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Onboarding Agent for RWR Group's LMS, welcoming a new employee.\n\nNew employee: {{ $('When Called by Supervisor').item.json.user_name }}\nIs brand new user: {{ $('Upsert User').item.json.is_new_user }}\nOnboarding courses enrolled in: {{ JSON.stringify($('Get Onboarding Courses').all().map(i => ({ title: i.json.title, code: i.json.code, modules: i.json.total_modules }))) }}\nEnrolled in N new courses: {{ $('Auto-Enrol in OB Courses').all().length }}\n\nWrite a warm, professional Slack onboarding welcome message in mrkdwn format.\nInclude:\n1. Personal welcome greeting using their name\n2. Brief intro to the LMS purpose at RWR Group (1-2 sentences)\n3. Their learning path — list each onboarding course with a brief one-line description of why it matters\n4. Step-by-step quick-start guide:\n   • Step 1: Use /learn to start your first lesson\n   • Step 2: Complete the mission with /submit\n   • Step 3: Track progress with /progress\n   • Step 4: Earn your certificate with /cert\n5. Encouraging closing line\n\nTone: warm, welcoming, professional. Under 1000 characters total.",
+        "options": {
+          "systemMessage": "You are a warm, professional corporate onboarding specialist. Make the new employee feel welcomed and confident."
+        }
+      },
+      "id": "ad130000-0000-0000-0000-000000000005",
+      "name": "Gemini Welcome Message",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [960, 0],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "👋 Welcome to RWR Group LMS!" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Courses enrolled:*\n{{ $('Get Onboarding Courses').all().map(i => '• ' + i.json.title + ' (' + i.json.total_modules + ' modules)').join('\\n') }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Quick commands:*\n`/learn` — Start a lesson\n`/submit` — Complete a mission\n`/progress` — View your stats\n`/cert` — Claim a certificate"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ad130000-0000-0000-0000-000000000006",
+      "name": "Post Welcome to Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 0]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Upsert User", "type": "main", "index": 0 }]] },
+    "Upsert User": { "main": [[{ "node": "Get Onboarding Courses", "type": "main", "index": 0 }]] },
+    "Get Onboarding Courses": { "main": [[{ "node": "Auto-Enrol in OB Courses", "type": "main", "index": 0 }]] },
+    "Auto-Enrol in OB Courses": { "main": [[{ "node": "Gemini Welcome Message", "type": "main", "index": 0 }]] },
+    "Gemini Welcome Message": { "main": [[{ "node": "Post Welcome to Channel", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "R8adLhGssCewBrKC",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Gemini" }, { "name": "Onboarding" }]
+}

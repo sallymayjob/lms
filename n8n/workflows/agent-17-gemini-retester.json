@@ -1,0 +1,252 @@
+{
+  "id": "a17GeminiRetester01",
+  "name": "Agent 17 — Gemini Re-Tester",
+  "active": false,
+  "version": 1,
+  "nodes": [
+    {
+      "id": "workflow-trigger",
+      "name": "Workflow Trigger",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "parameters": {}
+    },
+    {
+      "id": "manual-trigger",
+      "name": "Manual Trigger",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "parameters": {}
+    },
+    {
+      "id": "read-lesson",
+      "name": "Postgres: Read Full Lesson",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM lessons WHERE lesson_id = $1",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.lessonID || $json.lesson_id]) }}"
+        }
+      }
+    },
+    {
+      "id": "build-gemini-prompt",
+      "name": "Build Gemini QA Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "parameters": {
+        "jsCode": "const lesson = $input.first().json;\n\nif (!lesson || !lesson.lesson_id) {\n  throw new Error('Lesson not found in database: ' + JSON.stringify($input.first().json));\n}\n\nconst lessonJson = JSON.stringify({\n  lesson_id: lesson.lesson_id,\n  month: lesson.month,\n  week: lesson.week,\n  lesson_num: lesson.lesson_num,\n  type: lesson.type,\n  difficulty: lesson.difficulty,\n  tone: lesson.tone,\n  hook: lesson.hook,\n  core_content: lesson.core_content,\n  insight: lesson.insight,\n  takeaway: lesson.takeaway,\n  mission_description: lesson.mission_description,\n  mission_minutes: lesson.mission_minutes,\n  mission_format: lesson.mission_format,\n  mission_tools: lesson.mission_tools,\n  alternative_path: lesson.alternative_path,\n  verification: lesson.verification,\n  expected_evidence: lesson.expected_evidence,\n  submit_command: lesson.submit_command\n}, null, 2);\n\nconst systemPrompt = `You are the QA Reviewer for the RWR Group Slack LMS. Evaluate this lesson against the SOP-05 rubric. Return ONLY valid JSON with no markdown, no code fences, no explanation.\n\nSOP-05 RUBRIC (6 criteria, weighted score 0-100):\n\nC1 — ULC Completeness (20%): All 7 components present and correctly formed.\nScore 100 if all 7 present: Hook (2 sentences max), Core Content (≤300 words),\nInsight (1 sentence ≤50 words), Takeaway (1 sentence ≤15 words), Mission (verb-first),\nVerification (1 question, not answerable without completing mission), Submit Block\n(format: /submit {lesson_id} complete). Deduct 15 per missing or malformed component.\nSubmit Block missing = automatic 0 on this criterion.\n\nC2 — Word Limits (15%): Total ≤500, Core Content ≤300, Insight ≤50, Takeaway ≤15 words.\nScore 100 if all within limits. Deduct 20 per 50 words over total/core.\nDeduct 30 if insight or takeaway exceed hard caps.\n\nC3 — Brand Compliance (15%): Zero banned words (any instance = criterion score 0).\nBanned words: \"just a recruiter\", \"human resources\", \"staff\", \"manpower\", \"headcount\",\n\"leverage\", \"synergy\", \"transformative\". Also check: correct terminology\n(empower not help, recruiting professionals not recruiters, people & culture not HR),\ntone matches month tier, emoji ≤2 from approved list, no hype or controlling language.\n\nC4 — Mission Feasibility (20%): Verb-first action, completable in <5 minutes,\nuses tools from: LinkedIn, ATS, email, Slack, Google Workspace.\nAlternative path if paid tool required. Submission format explicitly stated\n(screenshot/text/link/metric). Difficulty matches month tier\n(M1-3 Guided, M4-8 Independent, M9-12 Strategic). Deduct 20 per failed sub-check.\n\nC5 — Content Accuracy (20%): Practitioner-level knowledge (not generic/textbook),\nno hallucinated statistics or tools, insight is specific and counterintuitive\n(not a restatement of takeaway), no filler phrases. Deduct 20 per failed sub-check.\n\nC6 — Continuity (10%): No direct repetition of prior lesson concepts (use\ncontinuity_notes field if available). Insight adds new value. Deduct 50 if overlap.\n\nHUMAN OVERRIDE TRIGGERS (set hard_fail_triggered=true and skip numeric scoring):\n- Any banned word in output\n- Total word count < 150\n- Verification answerable without completing the mission\n- Lesson is Month 1 Week 1 (M01-W01-*)\n\nVERDICT THRESHOLDS:\n90-100: STRONG_PASS | 80-89: PASS | 60-79: CONDITIONAL_PASS |\n40-59: SOFT_FAIL | 0-39: HARD_FAIL\n\nGOLDEN EXAMPLE: true only if score ≥90, no PED flags, brand_compliance ≥95,\ninsight is counterintuitive, mission requires professional judgment.\n\nReturn this exact JSON schema:\n{\n  \"qa_score\": number,\n  \"qa_verdict\": string,\n  \"c1_ulc\": number,\n  \"c2_words\": number,\n  \"c3_brand\": number,\n  \"c4_mission\": number,\n  \"c5_content\": number,\n  \"c6_continuity\": number,\n  \"hard_fail_triggered\": boolean,\n  \"override_reason\": string|null,\n  \"golden_example\": boolean,\n  \"revision_prompt\": string|null,\n  \"target_agent\": string|null,\n  \"issues\": [{\"criterion\": string, \"severity\": string, \"detail\": string}]\n}\n\nLesson to evaluate:\n${lessonJson}`;\n\nreturn [{\n  json: {\n    lessonID: lesson.lesson_id,\n    oldScore: lesson.qa_score || 0,\n    oldVerdict: lesson.qa_verdict || 'UNSCORED',\n    prompt: systemPrompt\n  }\n}];"
+      }
+    },
+    {
+      "id": "call-gemini",
+      "name": "HTTP: Call Gemini API",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 300],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-goog-api-key",
+              "value": "={{ $env.GEMINI_API_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "contents": [
+            {
+              "role": "user",
+              "parts": [
+                {
+                  "text": "={{ $json.prompt }}"
+                }
+              ]
+            }
+          ],
+          "generationConfig": {
+            "responseMimeType": "application/json",
+            "temperature": 0.1,
+            "maxOutputTokens": 2048
+          }
+        }
+      }
+    },
+    {
+      "id": "parse-gemini-response",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "parameters": {
+        "jsCode": "const geminiResponse = $input.first().json;\nconst lessonData = $('Build Gemini QA Prompt').first().json;\n\n// Extract the text from Gemini's response\nlet rawText = '';\ntry {\n  rawText = geminiResponse.candidates[0].content.parts[0].text;\n} catch (e) {\n  throw new Error('Failed to extract Gemini response text: ' + e.message);\n}\n\n// Parse the JSON response\nlet qaResult;\ntry {\n  // Remove any accidental markdown fences\n  const cleaned = rawText.replace(/```json\\n?/g, '').replace(/```\\n?/g, '').trim();\n  qaResult = JSON.parse(cleaned);\n} catch (e) {\n  throw new Error('Failed to parse Gemini JSON response: ' + e.message + '\\nRaw: ' + rawText.slice(0, 500));\n}\n\nconst newScore = parseFloat(qaResult.qa_score) || 0;\nconst oldScore = parseFloat(lessonData.oldScore) || 0;\nconst scoreDelta = newScore - oldScore;\n\n// Auto-downgrade status if score dropped significantly\nlet newPublicationStatus = null;\nif (scoreDelta < -10) {\n  newPublicationStatus = 'NEEDS_REVISION';\n}\n\nreturn [{\n  json: {\n    lessonID: lessonData.lessonID,\n    oldScore,\n    newScore,\n    scoreDelta,\n    oldVerdict: lessonData.oldVerdict,\n    newVerdict: qaResult.qa_verdict,\n    c1_ulc: qaResult.c1_ulc,\n    c2_words: qaResult.c2_words,\n    c3_brand: qaResult.c3_brand,\n    c4_mission: qaResult.c4_mission,\n    c5_content: qaResult.c5_content,\n    c6_continuity: qaResult.c6_continuity,\n    hardFailTriggered: qaResult.hard_fail_triggered,\n    overrideReason: qaResult.override_reason,\n    goldenExample: qaResult.golden_example,\n    revisionPrompt: qaResult.revision_prompt,\n    targetAgent: qaResult.target_agent,\n    issues: qaResult.issues || [],\n    newPublicationStatus\n  }\n}];"
+      }
+    },
+    {
+      "id": "insert-qa-log",
+      "name": "Postgres: Append to QA Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1340, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO qa_log (lesson_id, run_trigger, qa_score, qa_verdict, c1_ulc, c2_words, c3_brand, c4_mission, c5_content, c6_continuity, hard_fail_triggered, override_reason, golden_example, revision_prompt, target_agent) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.lessonID, 'edit_retest', $json.newScore, $json.newVerdict, $json.c1_ulc, $json.c2_words, $json.c3_brand, $json.c4_mission, $json.c5_content, $json.c6_continuity, $json.hardFailTriggered, $json.overrideReason, $json.goldenExample, $json.revisionPrompt, $json.targetAgent]) }}"
+        }
+      }
+    },
+    {
+      "id": "update-lesson-qa",
+      "name": "Postgres: Update Lesson QA Fields",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1560, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE lessons SET qa_score = $1, qa_verdict = $2, qa_run_date = CURRENT_DATE, publication_status = COALESCE($3, publication_status), updated_at = NOW() WHERE lesson_id = $4",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.newScore, $json.newVerdict, $json.newPublicationStatus, $json.lessonID]) }}"
+        }
+      }
+    },
+    {
+      "id": "build-return-payload",
+      "name": "Build Return Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300],
+      "parameters": {
+        "jsCode": "// Return a clean payload for Agent 16 to use in the Slack edit alert\nconst data = $('Parse Gemini Response').first().json;\n\nreturn [{\n  json: {\n    lessonID: data.lessonID,\n    old_score: data.oldScore,\n    new_score: data.newScore,\n    score_delta: data.scoreDelta,\n    old_verdict: data.oldVerdict,\n    new_verdict: data.newVerdict,\n    golden_example: data.goldenExample,\n    hard_fail_triggered: data.hardFailTriggered,\n    issues_count: data.issues.length,\n    status_changed_to: data.newPublicationStatus\n  }\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "Workflow Trigger": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Read Full Lesson",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Trigger": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Read Full Lesson",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Read Full Lesson": {
+      "main": [
+        [
+          {
+            "node": "Build Gemini QA Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini QA Prompt": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Call Gemini API",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Call Gemini API": {
+      "main": [
+        [
+          {
+            "node": "Parse Gemini Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Gemini Response": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Append to QA Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Append to QA Log": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Update Lesson QA Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Update Lesson QA Fields": {
+      "main": [
+        [
+          {
+            "node": "Build Return Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["content-factory", "agent-17", "gemini"],
+  "triggerCount": 2,
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}

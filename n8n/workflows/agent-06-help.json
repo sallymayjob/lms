@@ -1,0 +1,80 @@
+{
+  "name": "Agent 06 — Help",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a6000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "🎓 RWR Group LMS — Help" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Learning Commands*\n`/learn` — Start or resume your current lesson\n`/learn <N>` — Jump to lesson number N\n`/submit <answer>` — Submit your answer for the current module\n`/progress` — View your learning progress across all courses\n`/courses` — Browse all available courses"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Enrolment Commands*\n`/enroll <CODE>` — Enrol in a course using its code\n`/unenroll <CODE>` — Leave a course\n`/onboard` — Run the onboarding workflow (auto-enrols in OB courses)"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Achievement Commands*\n`/cert` — Claim your certificate once all modules are complete\n`/report` — View a summary report of your team's learning\n`/gaps` — Identify skill gaps in your learning path"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Admin Commands*\n`/backup` — Trigger a Google Sheets backup of all LMS data _(admin only)_"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Need more help? Contact your LMS admin or visit the #lms-support channel."
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a6000000-0000-0000-0000-000000000002",
+      "name": "Send Help to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [240, 0]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Send Help to Slack", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "a6HelpWorkflow001",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Help" }]
+}

@@ -1,0 +1,461 @@
+{
+  "name": "Agent 15 \u2014 Assignment Intake",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "slack-interactions",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1500000-0000-0000-0000-000000000001",
+      "name": "Slack Interactions Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -960,
+        120
+      ],
+      "webhookId": "a15-assignment-intake-webhook"
+    },
+    {
+      "parameters": {
+        "jsCode": "const root = $json.body ?? $json;\nconst payload = typeof root.payload === 'string' ? JSON.parse(root.payload) : (root.payload || root);\nreturn [{ json: payload }];"
+      },
+      "id": "a1500000-0000-0000-0000-000000000002",
+      "name": "Parse Interaction Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -760,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "block_actions",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.actions[0].action_id }}",
+              "rightValue": "nudge_assignment_icon",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1500000-0000-0000-0000-000000000003",
+      "name": "Is Assignment Icon Click",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -560,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://slack.com/api/views.open",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SLACK_BOT_TOKEN }}"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "trigger_id": "={{ $json.trigger_id }}",
+          "view": "={{ JSON.stringify({\n            type: 'modal',\n            callback_id: 'assignment_submission_modal',\n            title: { type: 'plain_text', text: 'Submit Assignment' },\n            submit: { type: 'plain_text', text: 'Save' },\n            close: { type: 'plain_text', text: 'Cancel' },\n            private_metadata: JSON.stringify({\n              user_id: $json.user.id,\n              lesson_id: JSON.parse($json.actions[0].value || '{}').lesson_id || '',\n              course_title: JSON.parse($json.actions[0].value || '{}').course_title || ''\n            }),\n            blocks: [\n              {\n                type: 'input',\n                block_id: 'assignment_link_block',\n                label: { type: 'plain_text', text: 'Assignment link (Google Doc/URL)' },\n                element: { type: 'plain_text_input', action_id: 'assignment_link_input', placeholder: { type: 'plain_text', text: 'https://...' } }\n              },\n              {\n                type: 'input',\n                block_id: 'assignment_screenshot_block',\n                optional: true,\n                label: { type: 'plain_text', text: 'Screenshot URL (optional)' },\n                element: { type: 'plain_text_input', action_id: 'assignment_screenshot_input', placeholder: { type: 'plain_text', text: 'https://...' } }\n              }\n            ]\n          }) }}"
+        },
+        "options": {}
+      },
+      "id": "a1500000-0000-0000-0000-000000000004",
+      "name": "Open Assignment Modal",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -360,
+        40
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.type }}",
+              "rightValue": "view_submission",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            },
+            {
+              "leftValue": "={{ $json.view.callback_id }}",
+              "rightValue": "assignment_submission_modal",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1500000-0000-0000-0000-000000000005",
+      "name": "Is Assignment Modal Submit",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -360,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const meta = JSON.parse($json.view.private_metadata || '{}');\nconst values = $json.view.state.values || {};\nconst link = values.assignment_link_block?.assignment_link_input?.value || '';\nconst screenshot = values.assignment_screenshot_block?.assignment_screenshot_input?.value || '';\nconst date = new Date().toISOString().replace(/[:.]/g, '-');\nconst safeUser = String(meta.user_id || $json.user?.id || 'unknown').replace(/[^a-zA-Z0-9_-]/g, '_');\nconst safeLesson = String(meta.lesson_id || 'na').replace(/[^a-zA-Z0-9_-]/g, '_');\nconst auto_filename = `assignment_${safeUser}_lesson-${safeLesson}_${date}.json`;\nreturn [{ json: { user_id: safeUser, lesson_id: safeLesson, course_title: meta.course_title || '', assignment_link: link, screenshot_url: screenshot, auto_filename } }];"
+      },
+      "id": "a1500000-0000-0000-0000-000000000006",
+      "name": "Build Auto Filename",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -160,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ASSIGNMENT_DRIVE_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json) }}",
+        "options": {}
+      },
+      "id": "a1500000-0000-0000-0000-000000000007",
+      "name": "Save To Drive Webhook",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        40,
+        220
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"response_action\": \"clear\" }",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000008",
+      "name": "Respond OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        120
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, slack_user_id FROM users WHERE slack_user_id = $1 LIMIT 1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user.id || $json.user_id || '']) }}"
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000009",
+      "name": "Resolve User For Reaction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -160,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-creds",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nudge_reactions (user_id, lesson_id, reaction_type, payload) VALUES ($1, NULLIF($2,'')::INT, $3, $4::jsonb);",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Resolve User For Reaction').item.json.id, String(JSON.parse($json.actions[0].value || '{}').lesson_id || ''), 'assignment_icon', JSON.stringify($json)]) }}"
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000010",
+      "name": "Log Assignment Icon Reaction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        40,
+        40
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-creds",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT id, slack_user_id FROM users WHERE slack_user_id = $1 LIMIT 1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id || '']) }}"
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000011",
+      "name": "Resolve User For Submission",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        240,
+        220
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-creds",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO nudge_reactions (user_id, lesson_id, reaction_type, payload) VALUES ($1, NULLIF($2,'')::INT, 'assignment_submit', $3::jsonb);",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Resolve User For Submission').item.json.id, String($json.lesson_id || ''), JSON.stringify($json)]) }}"
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000012",
+      "name": "Log Assignment Submit Reaction",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        200
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-creds",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO assignment_submissions (user_id, lesson_id, course_title, assignment_link, screenshot_url, drive_filename, payload) VALUES ($1, NULLIF($2,'')::INT, $3, $4, $5, $6, $7::jsonb);",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Resolve User For Submission').item.json.id, String($json.lesson_id || ''), $json.course_title || '', $json.assignment_link || '', $json.screenshot_url || '', $json.auto_filename || '', JSON.stringify($json)]) }}"
+        }
+      },
+      "id": "a1500000-0000-0000-0000-000000000013",
+      "name": "Store Assignment Submission",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        260
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-creds",
+          "name": "LMS Postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Slack Interactions Webhook": {
+      "main": [
+        [
+          {
+            "node": "Parse Interaction Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Interaction Payload": {
+      "main": [
+        [
+          {
+            "node": "Is Assignment Icon Click",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Is Assignment Modal Submit",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Assignment Icon Click": {
+      "main": [
+        [
+          {
+            "node": "Open Assignment Modal",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Resolve User For Reaction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Open Assignment Modal": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Assignment Modal Submit": {
+      "main": [
+        [
+          {
+            "node": "Build Auto Filename",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Auto Filename": {
+      "main": [
+        [
+          {
+            "node": "Resolve User For Submission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save To Drive Webhook": {
+      "main": [
+        [
+          {
+            "node": "Respond OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve User For Reaction": {
+      "main": [
+        [
+          {
+            "node": "Log Assignment Icon Reaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Resolve User For Submission": {
+      "main": [
+        [
+          {
+            "node": "Store Assignment Submission",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Assignment Submit Reaction",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Store Assignment Submission": {
+      "main": [
+        [
+          {
+            "node": "Save To Drive Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "id": "a15AssignmentIntake001",
+  "tags": [
+    {
+      "name": "LMS"
+    },
+    {
+      "name": "Assignment"
+    },
+    {
+      "name": "Slack Interactions"
+    }
+  ]
+}

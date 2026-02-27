@@ -1,0 +1,554 @@
+{
+  "name": "Agent 14 — Google Sheets Backup",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 2 * * *"
+            }
+          ]
+        }
+      },
+      "id": "bkp-sched-0001",
+      "name": "Nightly 2am UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "backup",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "bkp-web-0001",
+      "name": "Backup Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [0, 300],
+      "webhookId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\nconst raw = $input.first().json;\nconst rawBody = raw.rawBody || '';\nconst headers = raw.headers || {};\nconst timestamp = String(headers['x-slack-request-timestamp'] || '');\nconst slackSignature = String(headers['x-slack-signature'] || '');\nconst signingSecret = String($env.SLACK_SIGNING_SECRET || '');\nconst fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;\nif (!timestamp || parseInt(timestamp, 10) < fiveMinutesAgo) {\n  return [{ json: { valid: false, reason: 'timestamp_expired_or_missing', ...raw } }];\n}\nif (!signingSecret) {\n  return [{ json: { valid: false, reason: 'signing_secret_not_configured', ...raw } }];\n}\nconst baseString = `v0:${timestamp}:${rawBody}`;\nconst hmac = crypto.createHmac('sha256', signingSecret).update(baseString).digest('hex');\nconst computed = `v0=${hmac}`;\nlet valid = false;\ntry {\n  const a = Buffer.from(computed, 'utf8');\n  const b = Buffer.from(slackSignature, 'utf8');\n  if (a.length === b.length) {\n    valid = crypto.timingSafeEqual(a, b);\n  }\n} catch (e) {\n  valid = false;\n}\nconst body = raw.body || {};\nreturn [{ json: { valid, response_url: body.response_url || '', user_id: body.user_id || '' } }];\n"
+      },
+      "id": "bkp-sig-0001",
+      "name": "Validate Slack Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bkp-sig-check-01",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "bkp-if-0001",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [440, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Invalid request signature",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "bkp-rej-0001",
+      "name": "Reject — Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [660, 500]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  u.slack_user_id,\n  u.display_name,\n  c.title  AS course_title,\n  m.title  AS module_title,\n  TO_CHAR(p.completed_at, 'YYYY-MM-DD HH24:MI:SS') AS completed_at\nFROM progress p\nJOIN users   u ON u.id = p.user_id\nJOIN modules m ON m.id = p.module_id\nJOIN courses c ON c.id = m.course_id\nORDER BY p.completed_at DESC",
+        "options": {}
+      },
+      "id": "bkp-pg-0001",
+      "name": "Query Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [660, 150],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Progress",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "bkp-clear-0001",
+      "name": "Clear Progress Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [880, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Progress",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "bkp-gs-0001",
+      "name": "Write Progress → Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1100, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  u.slack_user_id,\n  u.display_name,\n  c.code   AS course_code,\n  c.title  AS course_title,\n  TO_CHAR(e.enrolled_at,  'YYYY-MM-DD HH24:MI:SS') AS enrolled_at,\n  CASE WHEN e.completed_at IS NOT NULL\n       THEN TO_CHAR(e.completed_at, 'YYYY-MM-DD HH24:MI:SS')\n       ELSE NULL END                               AS completed_at,\n  CASE WHEN e.completed_at IS NOT NULL\n       THEN 'Completed' ELSE 'In Progress' END     AS status\nFROM enrolments e\nJOIN users   u ON u.id = e.user_id\nJOIN courses c ON c.id = e.course_id\nORDER BY e.enrolled_at DESC",
+        "options": {}
+      },
+      "id": "bkp-pg-0002",
+      "name": "Query Enrollments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1320, 150],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Enrollments",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "bkp-clear-0002",
+      "name": "Clear Enrollments Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1540, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Enrollments",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "bkp-gs-0002",
+      "name": "Write Enrollments → Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [1760, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  u.slack_user_id,\n  u.display_name,\n  c.code   AS course_code,\n  c.title  AS course_title,\n  TO_CHAR(cert.issued_at, 'YYYY-MM-DD HH24:MI:SS') AS issued_at\nFROM certificates cert\nJOIN users   u ON u.id = cert.user_id\nJOIN courses c ON c.id = cert.course_id\nORDER BY cert.issued_at DESC",
+        "options": {}
+      },
+      "id": "bkp-pg-0003",
+      "name": "Query Certificates",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1980, 150],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "clear",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Certificates",
+          "mode": "name"
+        },
+        "options": {}
+      },
+      "id": "bkp-clear-0003",
+      "name": "Clear Certificates Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2200, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "Certificates",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "bkp-gs-0003",
+      "name": "Write Certificates → Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2420, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  table_name,\n  row_count,\n  TO_CHAR(NOW(), 'YYYY-MM-DD HH24:MI:SS') AS snapshot_at\nFROM (\n  SELECT 'users'        AS table_name, COUNT(*)::int AS row_count FROM users\n  UNION ALL\n  SELECT 'courses',                    COUNT(*)      FROM courses\n  UNION ALL\n  SELECT 'modules',                    COUNT(*)      FROM modules\n  UNION ALL\n  SELECT 'enrolments',                 COUNT(*)      FROM enrolments\n  UNION ALL\n  SELECT 'progress',                   COUNT(*)      FROM progress\n  UNION ALL\n  SELECT 'certificates',               COUNT(*)      FROM certificates\n) counts",
+        "options": {}
+      },
+      "id": "bkp-pg-0004",
+      "name": "Query DB Snapshot",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [2640, 150],
+      "credentials": {
+        "postgres": {
+          "id": "REPLACE_WITH_POSTGRES_CREDENTIAL_ID",
+          "name": "LMS Postgres"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "={{ $env.GOOGLE_SHEETS_BACKUP_ID }}",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "DB Snapshot",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [],
+          "schema": []
+        },
+        "options": {}
+      },
+      "id": "bkp-gs-0004",
+      "name": "Write Snapshot → Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [2860, 150],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "REPLACE_WITH_GOOGLE_CREDENTIAL_ID",
+          "name": "Google Sheets (LMS Backup)"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const rows = $('Query DB Snapshot').all().map(i => i.json);\nconst counts = {};\nrows.forEach(r => { counts[r.table_name] = r.row_count; });\nconst ts = new Date().toUTCString();\nreturn [{\n  json: {\n    text: `*LMS Google Sheets Backup Complete* — ${ts}\\n` +\n      `• Progress records: ${counts.progress ?? 0}\\n` +\n      `• Enrollments: ${counts.enrolments ?? 0}\\n` +\n      `• Certificates: ${counts.certificates ?? 0}\\n` +\n      `• Total users: ${counts.users ?? 0} | Courses: ${counts.courses ?? 0} | Modules: ${counts.modules ?? 0}`\n  }\n}];\n"
+      },
+      "id": "bkp-code-0001",
+      "name": "Build Summary",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3080, 150]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_ADMIN_WEBHOOK_URL }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({ text: $json.text }) }}",
+        "options": {}
+      },
+      "id": "bkp-http-0001",
+      "name": "Notify Slack — Backup Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [3300, 150]
+    }
+  ],
+  "connections": {
+    "Nightly 2am UTC": {
+      "main": [
+        [
+          { "node": "Query Progress", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Backup Webhook": {
+      "main": [
+        [
+          { "node": "Validate Slack Signature", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Validate Slack Signature": {
+      "main": [
+        [
+          { "node": "Signature Valid?", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          { "node": "Query Progress", "type": "main", "index": 0 }
+        ],
+        [
+          { "node": "Reject — Invalid Signature", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query Progress": {
+      "main": [
+        [
+          { "node": "Clear Progress Sheet", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Clear Progress Sheet": {
+      "main": [
+        [
+          { "node": "Write Progress → Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Progress → Sheets": {
+      "main": [
+        [
+          { "node": "Query Enrollments", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query Enrollments": {
+      "main": [
+        [
+          { "node": "Clear Enrollments Sheet", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Clear Enrollments Sheet": {
+      "main": [
+        [
+          { "node": "Write Enrollments → Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Enrollments → Sheets": {
+      "main": [
+        [
+          { "node": "Query Certificates", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query Certificates": {
+      "main": [
+        [
+          { "node": "Clear Certificates Sheet", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Clear Certificates Sheet": {
+      "main": [
+        [
+          { "node": "Write Certificates → Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Certificates → Sheets": {
+      "main": [
+        [
+          { "node": "Query DB Snapshot", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Query DB Snapshot": {
+      "main": [
+        [
+          { "node": "Write Snapshot → Sheets", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Write Snapshot → Sheets": {
+      "main": [
+        [
+          { "node": "Build Summary", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Build Summary": {
+      "main": [
+        [
+          { "node": "Notify Slack — Backup Complete", "type": "main", "index": 0 }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "saveManualExecutions": true,
+    "callerPolicy": "workflowsFromSameOwner"
+  },
+  "versionId": "bkp-v1-00000000-0000-0000-0000-000000000002",
+  "meta": {
+    "templateCredsSetupCompleted": false,
+    "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86"
+  },
+  "id": "BackupToGSheets01",
+  "tags": [
+    {
+      "createdAt": "2026-02-24T00:00:00.000Z",
+      "updatedAt": "2026-02-24T00:00:00.000Z",
+      "id": "backup-tag-lms",
+      "name": "LMS"
+    },
+    {
+      "createdAt": "2026-02-24T00:00:00.000Z",
+      "updatedAt": "2026-02-24T00:00:00.000Z",
+      "id": "backup-tag-backup",
+      "name": "Backup"
+    }
+  ]
+}

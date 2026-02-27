@@ -1,0 +1,110 @@
+{
+  "name": "Agent 09 — Gap Analyst (Gemini)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a9000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Stuck learners: enrolled but no progress in the last 7 days\nSELECT\n  u.display_name,\n  u.slack_user_id,\n  c.title AS course_title,\n  m.title AS stuck_module,\n  m.position + 1 AS module_number,\n  (\n    SELECT COUNT(*) FROM modules WHERE course_id = c.id\n  ) AS total_modules,\n  (\n    SELECT MAX(completed_at) FROM progress p2\n    JOIN modules m2 ON m2.id = p2.module_id\n    WHERE p2.user_id = u.id AND m2.course_id = c.id\n  ) AS last_progress_at,\n  e.enrolled_at\nFROM enrolments e\nJOIN users u ON u.id = e.user_id\nJOIN courses c ON c.id = e.course_id\nJOIN modules m ON m.id = e.current_module_id\nWHERE e.completed_at IS NULL\n  AND (\n    (\n      SELECT MAX(completed_at) FROM progress p3\n      JOIN modules m3 ON m3.id = p3.module_id\n      WHERE p3.user_id = u.id AND m3.course_id = c.id\n    ) < NOW() - INTERVAL '7 days'\n    OR (\n      SELECT COUNT(*) FROM progress p4\n      JOIN modules m4 ON m4.id = p4.module_id\n      WHERE p4.user_id = u.id AND m4.course_id = c.id\n    ) = 0\n  )\nORDER BY e.enrolled_at ASC\nLIMIT 20;",
+        "options": {}
+      },
+      "id": "a9000000-0000-0000-0000-000000000002",
+      "name": "Get Stuck Learners",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, -200],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "-- Hard modules: modules with lowest pass rate\nSELECT\n  m.title AS module_title,\n  m.position + 1 AS module_number,\n  c.title AS course_title,\n  COUNT(DISTINCT e.user_id) AS learners_reached,\n  COUNT(DISTINCT p.user_id) AS learners_passed,\n  ROUND(\n    100.0 * COUNT(DISTINCT p.user_id) / NULLIF(COUNT(DISTINCT e.user_id), 0),\n    1\n  ) AS pass_rate_pct\nFROM modules m\nJOIN courses c ON c.id = m.course_id\nLEFT JOIN enrolments e ON e.course_id = c.id\nLEFT JOIN progress p ON p.module_id = m.id AND p.user_id = e.user_id\nGROUP BY m.id, m.title, m.position, c.title\nHAVING COUNT(DISTINCT e.user_id) >= 2\nORDER BY pass_rate_pct ASC NULLS LAST\nLIMIT 5;",
+        "options": {}
+      },
+      "id": "a9000000-0000-0000-0000-000000000003",
+      "name": "Get Hard Modules",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 200],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Gap Analyst for the RWR Group LMS. You identify learning gaps and recommend interventions.\n\nSTUCK LEARNERS (no progress in 7+ days):\n{{ JSON.stringify($('Get Stuck Learners').all().map(i => i.json)) }}\n\nHARD MODULES (lowest pass rates):\n{{ JSON.stringify($('Get Hard Modules').all().map(i => i.json)) }}\n\nRequested by admin: {{ $('When Called by Supervisor').item.json.user_name }}\n\nProvide a concise gap analysis report in Slack mrkdwn format:\n\n*Section 1: Stuck Learners Summary*\n- Total count and which courses/modules they're stuck on\n- Pattern analysis (e.g. 'Most stuck on Module 3 of Sales Training')\n- Specific names/modules in a brief list (max 5, then 'and N more')\n- Recommended intervention (e.g. peer pairing, manager check-in)\n\n*Section 2: Hard Modules*\n- Modules with lowest pass rates\n- Hypothesis about why they're hard\n- Content improvement recommendation\n\n*Section 3: Quick Wins*\n- 2-3 actionable recommendations an admin can do today\n\nKeep total under 1500 characters.",
+        "options": {
+          "systemMessage": "You are a data-driven L&D analyst. Be specific, actionable, and concise."
+        }
+      },
+      "id": "a9000000-0000-0000-0000-000000000004",
+      "name": "Gemini Gap Analysis",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "🔍 Learning Gap Analysis" }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Stuck learners: *{{ $('Get Stuck Learners').all().length }}* · Hard modules analysed: *{{ $('Get Hard Modules').all().length }}* · Generated {{ new Date().toLocaleDateString() }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a9000000-0000-0000-0000-000000000005",
+      "name": "Send Gap Report",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": {
+      "main": [
+        [
+          { "node": "Get Stuck Learners", "type": "main", "index": 0 },
+          { "node": "Get Hard Modules", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Get Stuck Learners": { "main": [[{ "node": "Gemini Gap Analysis", "type": "main", "index": 0 }]] },
+    "Get Hard Modules": { "main": [[{ "node": "Gemini Gap Analysis", "type": "main", "index": 0 }]] },
+    "Gemini Gap Analysis": { "main": [[{ "node": "Send Gap Report", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "g5ZY673tbmDswpl4",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Gemini" }, { "name": "Analytics" }]
+}

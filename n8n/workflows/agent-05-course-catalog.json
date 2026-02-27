@@ -1,0 +1,85 @@
+{
+  "name": "Agent 05 — Course Catalog",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a5000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  c.code,\n  c.title,\n  c.description,\n  (SELECT COUNT(*) FROM modules WHERE course_id = c.id) AS module_count,\n  CASE WHEN c.code LIKE 'OB-%' THEN true ELSE false END AS is_onboarding\nFROM courses c\nORDER BY is_onboarding DESC, c.code;",
+        "options": {}
+      },
+      "id": "a5000000-0000-0000-0000-000000000002",
+      "name": "Get All Courses",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const courses = $input.all();\n\nif (courses.length === 0) {\n  return [{\n    json: {\n      catalog_text: '_No courses are currently available. Contact your LMS admin to add courses._',\n      course_count: 0\n    }\n  }];\n}\n\nconst lines = courses.map(item => {\n  const c = item.json;\n  const tag = c.is_onboarding ? ' _(onboarding)_' : '';\n  const desc = c.description ? `\\n  ${c.description}` : '';\n  return `*${c.code}*${tag} — ${c.title} · ${c.module_count} module${c.module_count != 1 ? 's' : ''}${desc}`;\n});\n\nreturn [{\n  json: {\n    catalog_text: lines.join('\\n\\n'),\n    course_count: courses.length\n  }\n}];\n",
+        "mode": "runOnceForAllItems"
+      },
+      "id": "a5000000-0000-0000-0000-000000000003",
+      "name": "Format Catalog",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "📚 Available Courses" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.catalog_text }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "{{ $json.course_count }} course(s) available · Use `/enroll <CODE>` to join a course"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a5000000-0000-0000-0000-000000000004",
+      "name": "Send Catalog to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Get All Courses", "type": "main", "index": 0 }]] },
+    "Get All Courses": { "main": [[{ "node": "Format Catalog", "type": "main", "index": 0 }]] },
+    "Format Catalog": { "main": [[{ "node": "Send Catalog to Slack", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "a5CatalogWrkflw01",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Catalog" }]
+}
