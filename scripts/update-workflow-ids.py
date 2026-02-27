@@ -41,8 +41,8 @@ NAME_TO_EXPECTED_ID: dict[str, str] = {
     "Agent 09 — Gap Analyst (Gemini)":   "g5ZY673tbmDswpl4",
     "Agent 10 — Unenroll":               "a10UnEnrollAgent1",
     "Agent 11 — Proactive Nudge":        "a11NudgeAgent001",
-    "Agent 12 — Reporting Agent":        "HpgyOs9wKZz2mAQd",
-    "Agent 13 — Onboarding Agent":       "R8adLhGssCewBrKC",
+    "Agent 12 — Reporting Agent (Gemini)":   "HpgyOs9wKZz2mAQd",
+    "Agent 13 — Onboarding Agent (Gemini)": "R8adLhGssCewBrKC",
     "Agent 14 — Google Sheets Backup":   "BackupToGSheets01",
     "Agent 15 — Assignment Intake":      "a15AssignmentIntake001",
     "Agent 16 — Lesson Edit Detector":   "a16LessonEditDetect",
@@ -50,7 +50,7 @@ NAME_TO_EXPECTED_ID: dict[str, str] = {
     "Agent 18 — Lesson Publisher":       "a18LessonPublisher1",
 }
 
-SUPERVISOR_NAME = "Supervisor Router"
+SUPERVISOR_NAME = "LMS Gemini Supervisor Router"
 
 
 def get_auth_header(auth: str) -> dict[str, str]:

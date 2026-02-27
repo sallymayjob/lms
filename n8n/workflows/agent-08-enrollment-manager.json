@@ -1,0 +1,251 @@
+{
+  "name": "Agent 08 — Enrollment Manager",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a8000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "jsCode": "const payload = $json;\nconst courseCode = (payload.text || '').trim().toUpperCase();\nif (!courseCode) {\n  return [{ json: { ...payload, courseCode: '', error: 'no_code' } }];\n}\nreturn [{ json: { ...payload, courseCode } }];\n"
+      },
+      "id": "a8000000-0000-0000-0000-000000000002",
+      "name": "Extract Course Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "has-code",
+              "leftValue": "={{ $json.error }}",
+              "rightValue": "no_code",
+              "operator": { "type": "string", "operation": "notEquals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000003",
+      "name": "Has Course Code?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "Please provide a course code. Usage: `/enroll <COURSE-CODE>`\n\nUse `/courses` to browse available courses, or ask your LMS admin for a code."
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000004",
+      "name": "No Code Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH upsert AS (\n  INSERT INTO users (slack_user_id, slack_team_id, display_name)\n  VALUES ($1, $2, $3)\n  ON CONFLICT (slack_user_id) DO UPDATE SET display_name = EXCLUDED.display_name\n  RETURNING id\n)\nSELECT\n  c.id AS course_id,\n  c.title AS course_title,\n  c.code AS course_code,\n  c.description AS course_description,\n  m.id AS first_module_id,\n  m.title AS first_module_title,\n  (SELECT COUNT(*) FROM modules WHERE course_id = c.id) AS total_modules,\n  (SELECT id FROM upsert) AS user_id,\n  (\n    SELECT id FROM enrolments e2\n    WHERE e2.user_id = (SELECT id FROM upsert)\n      AND e2.course_id = c.id\n  ) AS existing_enrolment_id\nFROM courses c\nLEFT JOIN modules m ON m.id = (\n  SELECT id FROM modules WHERE course_id = c.id ORDER BY position ASC LIMIT 1\n)\nWHERE UPPER(c.code) = $4;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id, $json.team_id, $json.user_name, $json.courseCode]) }}"
+        }
+      },
+      "id": "a8000000-0000-0000-0000-000000000005",
+      "name": "Lookup Course & Upsert User",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [720, -200],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            {
+              "id": "course-found",
+              "leftValue": "={{ $json.course_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000006",
+      "name": "Course Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [960, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "Course code *{{ $('Extract Course Code').item.json.courseCode }}* not found. Use `/courses` to see what's available, or contact your LMS admin."
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000007",
+      "name": "Course Not Found Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1200, 0]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "already-enrolled",
+              "leftValue": "={{ $json.existing_enrolment_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000008",
+      "name": "Already Enrolled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1200, -400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "You're already enrolled in *{{ $json.course_title }}*! Use `/learn` to continue where you left off."
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000009",
+      "name": "Already Enrolled Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, -200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO enrolments (user_id, course_id, current_module_id)\nVALUES ($1, $2, $3)\nRETURNING id;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id, $json.course_id, $json.first_module_id]) }}"
+        }
+      },
+      "id": "a8000000-0000-0000-0000-000000000010",
+      "name": "Create Enrolment",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1440, -600],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "🎓 Enrolled Successfully!" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Welcome to *{{ $('Lookup Course & Upsert User').item.json.course_title }}*, <@{{ $('When Called by Supervisor').item.json.user_id }}>!\n\n{{ $('Lookup Course & Upsert User').item.json.course_description }}"
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*First Module:*\n{{ $('Lookup Course & Upsert User').item.json.first_module_title }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Total Modules:*\n{{ $('Lookup Course & Upsert User').item.json.total_modules }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Use `/learn` to start your first lesson now!"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a8000000-0000-0000-0000-000000000011",
+      "name": "Send Enrolment Confirmation",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1680, -600]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Extract Course Code", "type": "main", "index": 0 }]] },
+    "Extract Course Code": { "main": [[{ "node": "Has Course Code?", "type": "main", "index": 0 }]] },
+    "Has Course Code?": {
+      "main": [
+        [{ "node": "Lookup Course & Upsert User", "type": "main", "index": 0 }],
+        [{ "node": "No Code Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Lookup Course & Upsert User": { "main": [[{ "node": "Course Found?", "type": "main", "index": 0 }]] },
+    "Course Found?": {
+      "main": [
+        [{ "node": "Already Enrolled?", "type": "main", "index": 0 }],
+        [{ "node": "Course Not Found Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Already Enrolled?": {
+      "main": [
+        [{ "node": "Already Enrolled Reply", "type": "main", "index": 0 }],
+        [{ "node": "Create Enrolment", "type": "main", "index": 0 }]
+      ]
+    },
+    "Create Enrolment": { "main": [[{ "node": "Send Enrolment Confirmation", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "BjxEx4DjqMwlkrU4",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Enrollment" }]
+}

@@ -1,0 +1,199 @@
+{
+  "name": "Agent 07 — Certification",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a7000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  u.id AS user_id,\n  u.display_name,\n  u.email,\n  e.id AS enrolment_id,\n  c.id AS course_id,\n  c.title AS course_title,\n  c.code AS course_code,\n  (\n    SELECT COUNT(*) FROM modules WHERE course_id = c.id\n  ) AS total_modules,\n  (\n    SELECT COUNT(*) FROM progress p\n    JOIN modules m ON m.id = p.module_id\n    WHERE p.user_id = u.id AND m.course_id = c.id\n  ) AS completed_modules,\n  (\n    SELECT id FROM certificates\n    WHERE user_id = u.id AND course_id = c.id\n  ) AS existing_cert_id\nFROM users u\nJOIN enrolments e ON e.user_id = u.id\nJOIN courses c ON c.id = e.course_id\nWHERE u.slack_user_id = $1\nORDER BY e.enrolled_at DESC\nLIMIT 1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id]) }}"
+        }
+      },
+      "id": "a7000000-0000-0000-0000-000000000002",
+      "name": "Check Completion Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "already-cert",
+              "leftValue": "={{ $json.existing_cert_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000003",
+      "name": "Already Certified?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "🏆 You already have a certificate for *{{ $json.course_title }}*! Check your email or contact your LMS admin to retrieve it."
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000004",
+      "name": "Already Certified Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "all-done",
+              "leftValue": "={{ $json.completed_modules }}",
+              "rightValue": "={{ $json.total_modules }}",
+              "operator": { "type": "number", "operation": "gte" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000005",
+      "name": "All Modules Done?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [720, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "You've completed {{ $json.completed_modules }}/{{ $json.total_modules }} modules in *{{ $json.course_title }}*. Finish all modules first, then use `/cert` to claim your certificate."
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000006",
+      "name": "Not Complete Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH cert AS (\n  INSERT INTO certificates (user_id, course_id)\n  VALUES ($1, $2)\n  ON CONFLICT (user_id, course_id) DO NOTHING\n  RETURNING id, issued_at\n),\nenrol_update AS (\n  UPDATE enrolments SET completed_at = NOW()\n  WHERE id = $3 AND completed_at IS NULL\n  RETURNING id\n)\nSELECT id, TO_CHAR(issued_at, 'DD Month YYYY') AS issued_at_formatted FROM cert;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Check Completion Status').item.json.user_id, $('Check Completion Status').item.json.course_id, $('Check Completion Status').item.json.enrolment_id]) }}"
+        }
+      },
+      "id": "a7000000-0000-0000-0000-000000000007",
+      "name": "Issue Certificate",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [960, -400],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are issuing a certificate of completion for the RWR Group LMS.\n\nLearner name: {{ $('Check Completion Status').item.json.display_name || $('When Called by Supervisor').item.json.user_name }}\nCourse completed: {{ $('Check Completion Status').item.json.course_title }}\nDate: {{ $json.issued_at_formatted }}\n\nWrite a celebratory certificate announcement message in Slack mrkdwn format.\nInclude:\n- Congratulations header\n- What they achieved\n- The significance of the certification for RWR Group\n- Encouragement to share their achievement\nKeep it warm, professional, under 300 characters.",
+        "options": {
+          "systemMessage": "You are a congratulatory announcer. Be enthusiastic and genuine."
+        }
+      },
+      "id": "a7000000-0000-0000-0000-000000000008",
+      "name": "Gemini Draft Announcement",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [1200, -400],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "🏆 Certificate Issued!" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Certificate for *{{ $('Check Completion Status').item.json.course_title }}* · Issued {{ $('Issue Certificate').item.json.issued_at_formatted }}"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a7000000-0000-0000-0000-000000000009",
+      "name": "Post Certificate to Channel",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, -400]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Check Completion Status", "type": "main", "index": 0 }]] },
+    "Check Completion Status": { "main": [[{ "node": "Already Certified?", "type": "main", "index": 0 }]] },
+    "Already Certified?": {
+      "main": [
+        [{ "node": "Already Certified Reply", "type": "main", "index": 0 }],
+        [{ "node": "All Modules Done?", "type": "main", "index": 0 }]
+      ]
+    },
+    "All Modules Done?": {
+      "main": [
+        [{ "node": "Issue Certificate", "type": "main", "index": 0 }],
+        [{ "node": "Not Complete Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Issue Certificate": { "main": [[{ "node": "Gemini Draft Announcement", "type": "main", "index": 0 }]] },
+    "Gemini Draft Announcement": { "main": [[{ "node": "Post Certificate to Channel", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "TcY8C8malQ5SiTqZ",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Certification" }]
+}

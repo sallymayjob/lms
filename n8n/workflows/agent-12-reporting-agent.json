@@ -1,0 +1,101 @@
+{
+  "name": "Agent 12 — Reporting Agent (Gemini)",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "ac120000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  -- Enrolment stats\n  (SELECT COUNT(*) FROM enrolments) AS total_enrolments,\n  (SELECT COUNT(*) FROM enrolments WHERE completed_at IS NOT NULL) AS completed_enrolments,\n  (SELECT COUNT(DISTINCT user_id) FROM enrolments) AS unique_learners,\n  (SELECT COUNT(DISTINCT user_id) FROM enrolments WHERE completed_at IS NOT NULL) AS learners_completed_a_course,\n\n  -- Active learners (progress in last 7 days)\n  (SELECT COUNT(DISTINCT user_id) FROM progress WHERE completed_at > NOW() - INTERVAL '7 days') AS active_learners_7d,\n\n  -- Completion rate\n  ROUND(\n    100.0 * (SELECT COUNT(*) FROM enrolments WHERE completed_at IS NOT NULL)\n    / NULLIF((SELECT COUNT(*) FROM enrolments), 0), 1\n  ) AS completion_rate_pct,\n\n  -- Certificates\n  (SELECT COUNT(*) FROM certificates) AS total_certificates,\n\n  -- Top courses by enrolment\n  (\n    SELECT json_agg(json_build_object(\n      'course', c.title,\n      'code', c.code,\n      'enrolments', cnt,\n      'completions', compl\n    ) ORDER BY cnt DESC)\n    FROM (\n      SELECT\n        e.course_id,\n        COUNT(*) AS cnt,\n        COUNT(e.completed_at) AS compl\n      FROM enrolments e\n      GROUP BY e.course_id\n      LIMIT 5\n    ) t\n    JOIN courses c ON c.id = t.course_id\n  ) AS top_courses,\n\n  -- Modules completed today\n  (SELECT COUNT(*) FROM progress WHERE completed_at::date = CURRENT_DATE) AS modules_completed_today,\n\n  -- New enrolments this week\n  (SELECT COUNT(*) FROM enrolments WHERE enrolled_at > NOW() - INTERVAL '7 days') AS new_enrolments_7d;",
+        "options": {}
+      },
+      "id": "ac120000-0000-0000-0000-000000000002",
+      "name": "Get LMS Stats",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Reporting Agent for the RWR Group LMS. Generate a concise executive dashboard.\n\nLMS STATS (as of {{ new Date().toLocaleDateString('en-GB') }}):\n- Total enrolments: {{ $json.total_enrolments }}\n- Unique learners: {{ $json.unique_learners }}\n- Active learners (7 days): {{ $json.active_learners_7d }}\n- New enrolments this week: {{ $json.new_enrolments_7d }}\n- Completed enrolments: {{ $json.completed_enrolments }}\n- Overall completion rate: {{ $json.completion_rate_pct }}%\n- Learners who finished a course: {{ $json.learners_completed_a_course }}\n- Total certificates issued: {{ $json.total_certificates }}\n- Modules completed today: {{ $json.modules_completed_today }}\n- Top courses: {{ JSON.stringify($json.top_courses) }}\n\nRequested by: {{ $('When Called by Supervisor').item.json.user_name }}\n\nCreate a Slack mrkdwn dashboard report with:\n1. *Headline KPIs* — 3-4 key numbers with emoji indicators (↑↓ trends if notable)\n2. *Course Performance* — top courses table (name | enrolments | completion %)\n3. *Health Indicators* — active learner rate, avg completion\n4. *AI Insight* — 2-3 sentences analysing what the data suggests about engagement\n5. *Recommended Actions* — 2 specific actions for the LMS admin\n\nKeep total under 1400 characters. Use Slack mrkdwn tables with pipe characters.",
+        "options": {
+          "systemMessage": "You are a sharp L&D analytics expert. Be data-driven, precise, and actionable."
+        }
+      },
+      "id": "ac120000-0000-0000-0000-000000000003",
+      "name": "Gemini Generate Report",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [480, 0],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "📊 LMS Analytics Dashboard" }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Generated {{ new Date().toLocaleString() }} · Requested by {{ $('When Called by Supervisor').item.json.user_name }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "Use `/gaps` for learner gap analysis"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "ac120000-0000-0000-0000-000000000004",
+      "name": "Send Dashboard to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 0]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Get LMS Stats", "type": "main", "index": 0 }]] },
+    "Get LMS Stats": { "main": [[{ "node": "Gemini Generate Report", "type": "main", "index": 0 }]] },
+    "Gemini Generate Report": { "main": [[{ "node": "Send Dashboard to Slack", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "HpgyOs9wKZz2mAQd",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Gemini" }, { "name": "Reporting" }]
+}

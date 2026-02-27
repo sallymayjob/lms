@@ -1,0 +1,150 @@
+{
+  "name": "Agent 03 — Tutor",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a3000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id AS user_id, e.id AS enrolment_id,\n       COALESCE(e.current_module_id, m_first.id) AS current_module_id,\n       m.title AS module_title, m.content AS module_content,\n       m.position AS module_position,\n       c.title AS course_title, c.id AS course_id,\n       (\n         SELECT COUNT(*) FROM modules WHERE course_id = c.id\n       ) AS total_modules,\n       (\n         SELECT COUNT(*) FROM progress p2\n         JOIN modules m2 ON m2.id = p2.module_id\n         WHERE p2.user_id = u.id AND m2.course_id = c.id\n       ) AS completed_modules\nFROM users u\nJOIN enrolments e ON e.user_id = u.id\nJOIN courses c ON c.id = e.course_id\nLEFT JOIN modules m ON m.id = e.current_module_id\nLEFT JOIN LATERAL (\n  SELECT id FROM modules WHERE course_id = c.id ORDER BY position ASC LIMIT 1\n) m_first ON true\nWHERE u.slack_user_id = $1\n  AND e.completed_at IS NULL\nORDER BY e.enrolled_at DESC\nLIMIT 1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id]) }}"
+        }
+      },
+      "id": "a3000000-0000-0000-0000-000000000002",
+      "name": "Get User Enrolment & Module",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            {
+              "id": "check-enrolled",
+              "leftValue": "={{ $json.enrolment_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a3000000-0000-0000-0000-000000000003",
+      "name": "Is Enrolled?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "You're not enrolled in any course yet. Use `/enroll <course-code>` to get started!"
+        },
+        "options": {}
+      },
+      "id": "a3000000-0000-0000-0000-000000000004",
+      "name": "Not Enrolled Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are a friendly, expert tutor for the RWR Group Learning Management System.\n\nCourse: {{ $json.course_title }}\nModule {{ $json.module_position + 1 }} of {{ $json.total_modules }}: {{ $json.module_title }}\nModule Content: {{ $json.module_content }}\n\nLearner: {{ $('When Called by Supervisor').item.json.user_name }}\nLearner requested lesson number: {{ $('When Called by Supervisor').item.json.lesson || 'current' }}\nModules completed so far: {{ $json.completed_modules }}/{{ $json.total_modules }}\n\nPresent this lesson in an engaging, conversational way. Structure your response as:\n1. A warm greeting with their name and brief progress summary\n2. The lesson content broken into clear, digestible points (use bullet points)\n3. A practical example or scenario relevant to RWR Group\n4. A clear mission/task they need to complete (this will be evaluated by /submit)\n5. Encouragement to submit with /submit when ready\n\nKeep the total response under 800 characters to fit Slack formatting well.\nUse Slack mrkdwn formatting: *bold*, _italic_, • bullets.",
+        "options": {
+          "systemMessage": "You are a warm, knowledgeable corporate trainer. Make learning feel achievable and relevant."
+        }
+      },
+      "id": "a3000000-0000-0000-0000-000000000005",
+      "name": "Gemini Generate Lesson",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [720, -200],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "📚 {{ $('Get User Enrolment & Module').item.json.module_title }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "{{ $('Get User Enrolment & Module').item.json.course_title }} · Module {{ $('Get User Enrolment & Module').item.json.module_position + 1 }}/{{ $('Get User Enrolment & Module').item.json.total_modules }} · {{ $('Get User Enrolment & Module').item.json.completed_modules }} completed"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            },
+            {
+              "type": "divider"
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "When you've completed the mission, use `/submit <your answer>` to continue."
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a3000000-0000-0000-0000-000000000006",
+      "name": "Send Lesson to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, -200]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Get User Enrolment & Module", "type": "main", "index": 0 }]] },
+    "Get User Enrolment & Module": { "main": [[{ "node": "Is Enrolled?", "type": "main", "index": 0 }]] },
+    "Is Enrolled?": {
+      "main": [
+        [{ "node": "Gemini Generate Lesson", "type": "main", "index": 0 }],
+        [{ "node": "Not Enrolled Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini Generate Lesson": { "main": [[{ "node": "Send Lesson to Slack", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "e0yErInDqhfKbNls",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Tutor" }]
+}

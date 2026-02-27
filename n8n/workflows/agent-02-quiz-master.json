@@ -1,0 +1,277 @@
+{
+  "name": "Agent 02 — Quiz Master",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a1000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT u.id AS user_id, e.id AS enrolment_id, e.current_module_id,\n       m.title AS module_title, m.content AS module_content,\n       c.title AS course_title\nFROM users u\nJOIN enrolments e ON e.user_id = u.id\nJOIN modules m ON m.id = e.current_module_id\nJOIN courses c ON c.id = e.course_id\nWHERE u.slack_user_id = $1\nORDER BY e.enrolled_at DESC\nLIMIT 1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id]) }}"
+        }
+      },
+      "id": "a1000000-0000-0000-0000-000000000002",
+      "name": "Get Current Module",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            {
+              "id": "check-module",
+              "leftValue": "={{ $json.user_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000003",
+      "name": "Has Active Module?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "You don't have an active module. Use `/enroll <course-code>` to join a course first."
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000004",
+      "name": "No Active Module Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Quiz Master for the RWR Group Learning Management System.\n\nCurrent module: {{ $json.module_title }}\nCourse: {{ $json.course_title }}\nModule content summary: {{ $json.module_content }}\n\nLearner's submission: {{ $('When Called by Supervisor').item.json.text }}\nLearner Slack username: {{ $('When Called by Supervisor').item.json.user_name }}\n\nEvaluate the submission against the module content. Decide:\n- PASS: The learner demonstrated understanding of the module objectives\n- FAIL: The submission does not meet the requirements, explain what is missing\n- INCOMPLETE: The submission is too brief or off-topic\n\nRespond with a JSON object:\n{\n  \"result\": \"PASS\" | \"FAIL\" | \"INCOMPLETE\",\n  \"feedback\": \"<encouraging, specific feedback in 2-3 sentences>\",\n  \"score\": <0-100>\n}",
+        "options": {
+          "systemMessage": "You are a fair, encouraging quiz evaluator for a corporate LMS. Be constructive and specific."
+        }
+      },
+      "id": "a1000000-0000-0000-0000-000000000005",
+      "name": "Gemini Evaluate Submission",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [720, -200],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $json.output || $json.text || '{}';\nlet parsed;\ntry {\n  const match = raw.match(/\\{[\\s\\S]*\\}/);\n  parsed = JSON.parse(match ? match[0] : raw);\n} catch (e) {\n  parsed = { result: 'INCOMPLETE', feedback: raw, score: 0 };\n}\nreturn [{ json: { ...parsed, ...$('Get Current Module').item.json, ...$('When Called by Supervisor').item.json } }];\n"
+      },
+      "id": "a1000000-0000-0000-0000-000000000006",
+      "name": "Parse Evaluation",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [960, -200]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "check-pass",
+              "leftValue": "={{ $json.result }}",
+              "rightValue": "PASS",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000007",
+      "name": "Passed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1200, -200]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH progress_insert AS (\n  INSERT INTO progress (user_id, module_id)\n  VALUES ($1, $2)\n  ON CONFLICT (user_id, module_id) DO NOTHING\n),\nnext_module AS (\n  SELECT id AS next_id FROM modules\n  WHERE course_id = (SELECT course_id FROM modules WHERE id = $2)\n    AND position > (SELECT position FROM modules WHERE id = $2)\n  ORDER BY position ASC\n  LIMIT 1\n)\nUPDATE enrolments\nSET\n  current_module_id = (SELECT next_id FROM next_module),\n  completed_at = CASE\n    WHEN (SELECT next_id FROM next_module) IS NULL THEN NOW()\n    ELSE completed_at\n  END\nWHERE id = $3\nRETURNING current_module_id, completed_at;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$('Parse Evaluation').item.json.user_id, $('Parse Evaluation').item.json.current_module_id, $('Parse Evaluation').item.json.enrolment_id]) }}"
+        }
+      },
+      "id": "a1000000-0000-0000-0000-000000000008",
+      "name": "Record Progress & Advance",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [1440, -300],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose", "version": 3 },
+          "conditions": [
+            {
+              "id": "check-complete",
+              "leftValue": "={{ $json.completed_at }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000011",
+      "name": "Course Complete?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [1680, -300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Evaluation').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "header",
+              "text": { "type": "plain_text", "text": "🎓 Course Complete!" }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": ":trophy: *Congratulations, <@{{ $('Parse Evaluation').item.json.user_id }}>!* You've completed every module in *{{ $('Parse Evaluation').item.json.course_title }}*.\n\n{{ $('Parse Evaluation').item.json.feedback }}\n\n*Score on final module:* {{ $('Parse Evaluation').item.json.score }}/100"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Use `/cert` to claim your certificate of completion!"
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000012",
+      "name": "Send Course Complete Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, -200]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Evaluation').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "in_channel",
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": ":white_check_mark: *Mission Complete!* <@{{ $('Parse Evaluation').item.json.user_id }}>\n\n{{ $('Parse Evaluation').item.json.feedback }}\n\n*Score:* {{ $('Parse Evaluation').item.json.score }}/100"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "Your progress has been saved. Use `/learn` to continue to your next lesson."
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000009",
+      "name": "Send Pass Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1920, -400]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Parse Evaluation').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": ":x: *Not quite yet, {{ $('Parse Evaluation').item.json.user_name }}!*\n\n{{ $('Parse Evaluation').item.json.feedback }}\n\nReview the module with `/learn` and try again when ready."
+              }
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a1000000-0000-0000-0000-000000000010",
+      "name": "Send Fail Response",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1440, -100]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Get Current Module", "type": "main", "index": 0 }]] },
+    "Get Current Module": { "main": [[{ "node": "Has Active Module?", "type": "main", "index": 0 }]] },
+    "Has Active Module?": {
+      "main": [
+        [{ "node": "Gemini Evaluate Submission", "type": "main", "index": 0 }],
+        [{ "node": "No Active Module Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini Evaluate Submission": { "main": [[{ "node": "Parse Evaluation", "type": "main", "index": 0 }]] },
+    "Parse Evaluation": { "main": [[{ "node": "Passed?", "type": "main", "index": 0 }]] },
+    "Passed?": {
+      "main": [
+        [{ "node": "Record Progress & Advance", "type": "main", "index": 0 }],
+        [{ "node": "Send Fail Response", "type": "main", "index": 0 }]
+      ]
+    },
+    "Record Progress & Advance": { "main": [[{ "node": "Course Complete?", "type": "main", "index": 0 }]] },
+    "Course Complete?": {
+      "main": [
+        [{ "node": "Send Course Complete Response", "type": "main", "index": 0 }],
+        [{ "node": "Send Pass Response", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "active": true,
+  "id": "wpJOwdjIluP9n6Tu",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Quiz" }]
+}

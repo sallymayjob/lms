@@ -1,0 +1,925 @@
+{
+  "name": "LMS Gemini Supervisor Router",
+  "nodes": [
+    {
+      "parameters": {
+        "jsCode": "const root = $json.body ?? $json;\n\nreturn [\n  {\n    json: {\n      team_id: root.team_id ?? '',\n      team_domain: root.team_domain ?? '',\n\n      channel_id: root.channel_id ?? '',\n      channel_name: root.channel_name ?? '',\n\n      user_id: root.user_id ?? '',\n      user_name: root.user_name ?? '',\n\n      command: root.command ?? '',\n      text: root.text ?? '',\n\n      response_url: root.response_url ?? '',\n      trigger_id: root.trigger_id ?? '',\n      api_app_id: root.api_app_id ?? '',\n      is_enterprise_install: root.is_enterprise_install ?? false,\n\n      raw_headers: root.raw_headers ?? {},\n      raw_params: root.raw_params ?? {},\n      raw_query: root.raw_query ?? {}\n    }\n  }\n];\n"
+      },
+      "id": "c745bf42-1d2c-4d27-9e1d-ddac85ae794e",
+      "name": "Parse Slack Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3472,
+        1712
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "59b6acc4-bd9a-4953-9c82-7addf40fc420",
+                    "leftValue": "/onboard",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "7d935e52-4291-4df1-8992-364cf9b91936",
+                    "leftValue": "/enroll",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "24d0ae7e-9d22-4b92-9b51-df8c0ec6ceac",
+                    "leftValue": "/progress",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "leftValue": "/learn",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "0078ac4a-c91f-470f-9d28-33f9fe395193"
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "6732be2c-6afb-4e07-a759-4284a1e79590",
+                    "leftValue": "/submit",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "1adfb894-735f-4d12-b08f-10615f5a831b",
+                    "leftValue": "/cert",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "ac0e669b-a75d-4d8f-b932-095f75ea319a",
+                    "leftValue": "/report",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "75d988cb-b41b-4676-a915-d0e938c5769e",
+                    "leftValue": "/gaps",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a5000000-0000-0000-0000-sw0000000001",
+                    "leftValue": "/courses",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a6000000-0000-0000-0000-sw0000000001",
+                    "leftValue": "/help",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "loose",
+                  "version": 3
+                },
+                "conditions": [
+                  {
+                    "id": "a10000000-0000-0000-0000-sw000000001",
+                    "leftValue": "/unenroll",
+                    "rightValue": "={{ $json.command }}",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              }
+            }
+          ]
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.4,
+      "position": [
+        -3024,
+        1616
+      ],
+      "id": "a82e8e87-6bc5-4a60-b213-04fc1bf17d31",
+      "name": "Switch",
+      "alwaysOutputData": false,
+      "executeOnce": false,
+      "retryOnFail": false,
+      "notesInFlow": true
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -3696,
+        2608
+      ],
+      "id": "cc8e995e-df71-40e7-ba17-8b7f28cb6e43",
+      "name": "When clicking 'Execute workflow'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "BjxEx4DjqMwlkrU4",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/BjxEx4DjqMwlkrU4",
+          "cachedResultName": "Agent 08 \u2014 Enrollment Manager"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        1040
+      ],
+      "id": "3e070ae3-84b4-466c-8178-7c6f36f46f6f",
+      "name": "Call 'Agent 08 \u2014 Enrollment Manager'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "e0yErInDqhfKbNls",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/e0yErInDqhfKbNls",
+          "cachedResultName": "Agent 03 \u2014 Tutor"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        1616
+      ],
+      "id": "f1c41304-2d53-468d-83ca-01f3ccd7bc23",
+      "name": "Call 'Agent 03 \u2014 Tutor'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "wpJOwdjIluP9n6Tu",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/wpJOwdjIluP9n6Tu",
+          "cachedResultName": "Agent 02 \u2014 Quiz Master"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        1808
+      ],
+      "id": "158f1212-ceb4-49e4-87a6-c3ec27e4f81f",
+      "name": "Call 'Agent 2 \u2014 Quiz"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "z8j0WZhQCfsduOdi",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/z8j0WZhQCfsduOdi",
+          "cachedResultName": "Agent 04 \u2014 Progress Tracker"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        1424
+      ],
+      "id": "645be86a-1410-437b-bb6b-78b3816bc483",
+      "name": "Call 'Agent 04 \u2014 Progress"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "TcY8C8malQ5SiTqZ",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/TcY8C8malQ5SiTqZ",
+          "cachedResultName": "Agent 07 \u2014 Certification"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2000
+      ],
+      "id": "a2ef74f2-8248-4d03-8a63-ec54764cc853",
+      "name": "Call 'Agent 07 \u2014 Cert"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "HpgyOs9wKZz2mAQd",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/HpgyOs9wKZz2mAQd",
+          "cachedResultName": "Agent 12 \u2014 Reporting Agent (Gemini)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2192
+      ],
+      "id": "c9967eb6-6cea-41ee-9d50-b375f4b9c756",
+      "name": "Call 'Agent 12 \u2014 Reporting Agent (Gemini)'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "g5ZY673tbmDswpl4",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/g5ZY673tbmDswpl4",
+          "cachedResultName": "Agent 09 \u2014 Gap Analyst (Gemini)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2416
+      ],
+      "id": "93e6cbae-c305-4d20-a8f6-088d24626536",
+      "name": "Call 'Agent 09 \u2014 Gap Analyst (Gemini)'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "a5CatalogWrkflw01",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/a5CatalogWrkflw01",
+          "cachedResultName": "Agent 05 \u2014 Course Catalog"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2608
+      ],
+      "id": "a5000000-0000-0000-0000-000000000010",
+      "name": "Call 'Agent 05 \u2014 Course Catalog'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "a6HelpWorkflow001",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/a6HelpWorkflow001",
+          "cachedResultName": "Agent 06 \u2014 Help"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2800
+      ],
+      "id": "a6000000-0000-0000-0000-000000000010",
+      "name": "Call 'Agent 06 \u2014 Help'"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "a10UnEnrollAgent1",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/a10UnEnrollAgent1",
+          "cachedResultName": "Agent 10 \u2014 Unenroll"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        2992
+      ],
+      "id": "a10000000-0000-0000-0000-000000000010",
+      "name": "Call 'Agent 10 \u2014 Unenroll'"
+    },
+    {
+      "parameters": {
+        "mode": "raw",
+        "jsonOutput": "={\n  \"team_id\": \"{{ $json.team_id || '' }}\",\n  \"team_domain\": \"{{ $json.team_domain || '' }}\",\n\n  \"channel_id\": \"{{ $json.channel_id || '' }}\",\n  \"channel_name\": \"{{ $json.channel_name || '' }}\",\n\n  \"user_id\": \"{{ $json.user_id || '' }}\",\n  \"user_name\": \"{{ $json.user_name || '' }}\",\n\n  \"command\": \"{{ $json.command || '' }}\",\n  \"text\": \"{{ $json.text || '' }}\",\n\n  \"lesson\": {{ Number(($json.text || '').split(' ')[1] || 0) }},\n\n  \"response_url\": \"{{ $json.response_url || '' }}\",\n  \"trigger_id\": \"{{ $json.trigger_id || '' }}\",\n  \"api_app_id\": \"{{ $json.api_app_id || '' }}\",\n  \"is_enterprise_install\": {{ $json.is_enterprise_install || false }},\n\n  \"raw_headers\": {{ JSON.stringify($json.raw_headers || {}) }},\n  \"raw_params\": {{ JSON.stringify($json.raw_params || {}) }},\n  \"raw_query\": {{ JSON.stringify($json.raw_query || {}) }}\n}\n",
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3248,
+        1712
+      ],
+      "id": "95ff24dd-6ffa-4798-8e7c-80ec6d7d6ea5",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "R8adLhGssCewBrKC",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/R8adLhGssCewBrKC",
+          "cachedResultName": "Agent 13 \u2014 Onboarding Agent (Gemini)"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {},
+          "matchingColumns": [],
+          "schema": [],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -2800,
+        1232
+      ],
+      "id": "b9535e98-d224-4612-9528-e6b90a89f2ab",
+      "name": "Call 'Agent 13 \u2014 Onboarding"
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "supervisor",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "id": "937ee444-b27c-4985-b342-b4901c92aacc",
+      "name": "Slack Supervisor Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -3696,
+        1712
+      ],
+      "webhookId": "900f3f53-7809-49a2-92f1-13d130c83f4f"
+    },
+    {
+      "parameters": {
+        "jsCode": "const crypto = require('crypto');\n\n// rawBody requires the Webhook node option rawBody: true\nconst raw = $input.first().json;\nconst rawBody = raw.rawBody || '';\nconst headers = raw.headers || {};\n\nconst timestamp = String(headers['x-slack-request-timestamp'] || '');\nconst slackSignature = String(headers['x-slack-signature'] || '');\nconst signingSecret = String($env.SLACK_SIGNING_SECRET || '');\n\n// Replay-attack protection: reject requests older than 5 minutes\nconst fiveMinutesAgo = Math.floor(Date.now() / 1000) - 300;\nif (!timestamp || parseInt(timestamp, 10) < fiveMinutesAgo) {\n  return [{ json: { valid: false, reason: 'timestamp_expired_or_missing', ...raw } }];\n}\n\nif (!signingSecret) {\n  // Fail closed: if secret is not configured, reject all requests\n  return [{ json: { valid: false, reason: 'signing_secret_not_configured', ...raw } }];\n}\n\nconst baseString = `v0:${timestamp}:${rawBody}`;\nconst hmac = crypto.createHmac('sha256', signingSecret).update(baseString).digest('hex');\nconst computed = `v0=${hmac}`;\n\n// Constant-time comparison prevents timing attacks\nlet valid = false;\ntry {\n  const a = Buffer.from(computed, 'utf8');\n  const b = Buffer.from(slackSignature, 'utf8');\n  if (a.length === b.length) {\n    valid = crypto.timingSafeEqual(a, b);\n  }\n} catch (e) {\n  valid = false;\n}\n\nreturn [{ json: { valid, ...raw } }];\n"
+      },
+      "id": "sec00001-0000-0000-0000-000000000001",
+      "name": "Validate Slack Signature",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -3920,
+        1712
+      ]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "sec00001-0000-0000-0000-000000000010",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "sec00001-0000-0000-0000-000000000002",
+      "name": "Signature Valid?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        -3760,
+        1712
+      ]
+    },
+    {
+      "parameters": {
+        "respondWith": "text",
+        "responseBody": "Invalid request signature",
+        "options": {
+          "responseCode": 401
+        }
+      },
+      "id": "sec00001-0000-0000-0000-000000000003",
+      "name": "Reject \u2014 Invalid Signature",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        -3760,
+        1900
+      ]
+    }
+  ],
+  "pinData": {
+    "When clicking 'Execute workflow'": [
+      {
+        "json": {
+          "team_id": "TTEST",
+          "team_domain": "test-domain",
+          "channel_id": "CTEST",
+          "channel_name": "general",
+          "user_id": "UTEST",
+          "user_name": "tester",
+          "command": "/learn",
+          "text": "/learn 2",
+          "response_url": "https://example.com",
+          "trigger_id": "trigger123",
+          "api_app_id": "APP123",
+          "is_enterprise_install": false,
+          "raw_headers": {},
+          "raw_params": {},
+          "raw_query": {}
+        }
+      }
+    ]
+  },
+  "connections": {
+    "Parse Slack Payload": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Call 'Agent 13 \u2014 Onboarding",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 08 \u2014 Enrollment Manager'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 04 \u2014 Progress",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 03 \u2014 Tutor'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 2 \u2014 Quiz",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 07 \u2014 Cert",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 12 \u2014 Reporting Agent (Gemini)'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 09 \u2014 Gap Analyst (Gemini)'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 05 \u2014 Course Catalog'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 06 \u2014 Help'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Call 'Agent 10 \u2014 Unenroll'",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Agent 05 \u2014 Course Catalog'": {
+      "main": [
+        []
+      ]
+    },
+    "Call 'Agent 06 \u2014 Help'": {
+      "main": [
+        []
+      ]
+    },
+    "Call 'Agent 10 \u2014 Unenroll'": {
+      "main": [
+        []
+      ]
+    },
+    "When clicking 'Execute workflow'": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Agent 13 \u2014 Onboarding": {
+      "main": [
+        []
+      ]
+    },
+    "Slack Supervisor Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate Slack Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Slack Signature": {
+      "main": [
+        [
+          {
+            "node": "Signature Valid?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Signature Valid?": {
+      "main": [
+        [
+          {
+            "node": "Parse Slack Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reject \u2014 Invalid Signature",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "045ca9ee-4cad-4d28-8431-becac62b30c9",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86"
+  },
+  "id": "SNcVr61oFTiFjoCB",
+  "tags": [
+    {
+      "updatedAt": "2026-02-16T06:14:40.926Z",
+      "createdAt": "2026-02-16T06:14:40.926Z",
+      "id": "BNv6mdpAofzPh0FF",
+      "name": "Gemini"
+    },
+    {
+      "updatedAt": "2026-02-16T05:27:31.215Z",
+      "createdAt": "2026-02-16T05:27:31.215Z",
+      "id": "ZkyYwn2ulUUTMSgC",
+      "name": "Supervisor"
+    },
+    {
+      "updatedAt": "2026-02-16T05:27:31.198Z",
+      "createdAt": "2026-02-16T05:27:31.198Z",
+      "id": "rowc3WzuOB7F72w9",
+      "name": "LMS"
+    }
+  ]
+}

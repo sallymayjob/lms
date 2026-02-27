@@ -1,0 +1,140 @@
+{
+  "name": "Agent 04 — Progress Tracker",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "a4000000-0000-0000-0000-000000000001",
+      "name": "When Called by Supervisor",
+      "type": "n8n-nodes-base.workflowTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT\n  u.id AS user_id,\n  u.display_name,\n  COALESCE(\n    (\n      SELECT json_agg(json_build_object(\n        'course', c.title,\n        'course_code', c.code,\n        'enrolled_at', e.enrolled_at,\n        'completed_at', e.completed_at,\n        'total_modules', (SELECT COUNT(*) FROM modules WHERE course_id = c.id),\n        'completed_modules', (\n          SELECT COUNT(*) FROM progress p\n          JOIN modules m ON m.id = p.module_id\n          WHERE p.user_id = u.id AND m.course_id = c.id\n        ),\n        'current_module', (SELECT title FROM modules WHERE id = e.current_module_id)\n      ))\n      FROM enrolments e\n      JOIN courses c ON c.id = e.course_id\n      WHERE e.user_id = u.id\n    ),\n    '[]'::json\n  ) AS enrolments,\n  (\n    SELECT COUNT(*) FROM certificates WHERE user_id = u.id\n  ) AS certificates_earned\nFROM users u\nWHERE u.slack_user_id = $1;",
+        "options": {
+          "queryParameters": "={{ JSON.stringify([$json.user_id]) }}"
+        }
+      },
+      "id": "a4000000-0000-0000-0000-000000000002",
+      "name": "Get Full Progress",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [240, 0],
+      "credentials": { "postgres": { "id": "postgres-creds", "name": "LMS Postgres" } }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 3 },
+          "conditions": [
+            {
+              "id": "check-user",
+              "leftValue": "={{ $json.user_id }}",
+              "rightValue": "",
+              "operator": { "type": "string", "operation": "isNotEmpty" }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "id": "a4000000-0000-0000-0000-000000000003",
+      "name": "User Found?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [480, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "text": "No account found. Use `/onboard` to get set up, or `/enroll <course-code>` to start a course."
+        },
+        "options": {}
+      },
+      "id": "a4000000-0000-0000-0000-000000000004",
+      "name": "No Account Reply",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 200]
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=You are the Progress Tracker for the RWR Group LMS.\n\nLearner: {{ $json.display_name || $('When Called by Supervisor').item.json.user_name }}\nCertificates earned: {{ $json.certificates_earned }}\nEnrolments: {{ JSON.stringify($json.enrolments) }}\n\nCreate a concise, motivating progress summary using Slack mrkdwn formatting.\nFor each course, show:\n- Course name\n- Progress bar using emoji blocks (e.g. 🟩🟩🟩⬜⬜ for 60%)\n- Completed / Total modules\n- Status: In Progress / Completed\n- Current module name (if in progress)\n\nEnd with a brief motivational message referencing their overall achievement.\nKeep total response under 1200 characters.",
+        "options": {
+          "systemMessage": "You are a motivating progress coach. Celebrate wins and encourage continued learning."
+        }
+      },
+      "id": "a4000000-0000-0000-0000-000000000005",
+      "name": "Gemini Format Progress",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [720, -200],
+      "credentials": { "googlePalmApi": { "id": "gemini-creds", "name": "Gemini API" } }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('When Called by Supervisor').item.json.response_url }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "response_type": "ephemeral",
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "📊 Your Learning Progress"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "={{ $json.output }}"
+              }
+            },
+            {
+              "type": "context",
+              "elements": [
+                {
+                  "type": "mrkdwn",
+                  "text": "🏆 *{{ $('Get Full Progress').item.json.certificates_earned }} certificate(s) earned* · Use `/cert` to claim yours"
+                }
+              ]
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "a4000000-0000-0000-0000-000000000006",
+      "name": "Send Progress to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, -200]
+    }
+  ],
+  "connections": {
+    "When Called by Supervisor": { "main": [[{ "node": "Get Full Progress", "type": "main", "index": 0 }]] },
+    "Get Full Progress": { "main": [[{ "node": "User Found?", "type": "main", "index": 0 }]] },
+    "User Found?": {
+      "main": [
+        [{ "node": "Gemini Format Progress", "type": "main", "index": 0 }],
+        [{ "node": "No Account Reply", "type": "main", "index": 0 }]
+      ]
+    },
+    "Gemini Format Progress": { "main": [[{ "node": "Send Progress to Slack", "type": "main", "index": 0 }]] }
+  },
+  "active": true,
+  "id": "z8j0WZhQCfsduOdi",
+  "meta": { "instanceId": "ba37a5ead069c5845647db1501a84f6ed072f343613a89495632df83e5b43e86" },
+  "tags": [{ "name": "LMS" }, { "name": "Progress" }]
+}
