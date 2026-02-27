@@ -67,7 +67,7 @@ header "Webhook Endpoint Checks (via Nginx HTTPS)"
 check_webhook() {
   local name="$1"
   local url="$2"
-  local expected_status="${3:-200}"
+  local _expected_status="${3:-200}"  # reserved for future use
 
   local http_status
   http_status=$(curl -sk --max-time 10 -o /dev/null -w "%{http_code}" \

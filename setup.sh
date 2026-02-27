@@ -94,7 +94,7 @@ prompt_var() {
       echo -e "  ${prompt_text} ${YELLOW}[already set — press Enter to keep]${NC}:"
       read -r -s input
       echo
-      [[ -n "$input" ]] && eval "$var_name=\"$input\"" || eval "$var_name=\"$current_val\""
+      if [[ -n "$input" ]]; then eval "$var_name=\"$input\""; else eval "$var_name=\"$current_val\""; fi
     else
       echo -e "  ${prompt_text}:"
       read -r -s input

@@ -9,7 +9,6 @@ set -euo pipefail
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
 
 # ─── Configuration ────────────────────────────────────────────────────────────
@@ -18,8 +17,8 @@ PROJECT_DIR="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 
 # Load .env
 if [[ -f "${PROJECT_DIR}/.env" ]]; then
-  # shellcheck disable=SC1091
   set -o allexport
+  # shellcheck disable=SC1091
   source "${PROJECT_DIR}/.env"
   set +o allexport
 fi
