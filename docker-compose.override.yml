@@ -1,0 +1,30 @@
+version: '3.8'
+
+# Local development overrides — NOT for production use
+# This file is automatically merged with docker-compose.yml when running:
+#   docker compose up
+#
+# For production, use docker-compose.yml only:
+#   docker compose -f docker-compose.yml up -d
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"  # Expose Postgres for local DB clients
+
+  n8n:
+    environment:
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://localhost:5678/
+      N8N_HOST: localhost
+    ports:
+      - "5678:5678"  # Expose n8n directly for local dev
+    # Override healthcheck to be faster locally
+    healthcheck:
+      interval: 5s
+      start_period: 20s
+
+  nginx:
+    # Comment out nginx in dev if you want to access n8n directly
+    profiles:
+      - nginx-dev

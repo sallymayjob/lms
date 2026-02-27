@@ -1,0 +1,434 @@
+{
+  "id": "a16LessonEditDetect",
+  "name": "Agent 16 — Lesson Edit Detector",
+  "active": false,
+  "version": 1,
+  "nodes": [
+    {
+      "id": "webhook-trigger",
+      "name": "Webhook: Lesson Edit",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "lesson-edit-detect",
+      "parameters": {
+        "path": "lesson-edit-detect",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "schedule-fallback",
+      "name": "Schedule: 5min Fallback Poll",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [240, 480],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "parse-edit-payload",
+      "name": "Parse Edit Payload",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300],
+      "parameters": {
+        "jsCode": "// Parse the incoming edit payload from Google Apps Script\n// Expected body: { lessonID, changedFields[], editedBy, timestamp, newChecksum }\n\nconst body = $input.first().json.body || $input.first().json;\n\nconst lessonID = body.lessonID || body.lesson_id;\nconst changedFields = body.changedFields || body.changed_fields || [];\nconst editedBy = body.editedBy || body.edited_by || 'unknown';\nconst timestamp = body.timestamp || new Date().toISOString();\nconst newChecksum = body.newChecksum || body.new_checksum || '';\n\nif (!lessonID) {\n  throw new Error('Missing required field: lessonID');\n}\n\nreturn [{\n  json: {\n    lessonID,\n    changedFields,\n    editedBy,\n    timestamp,\n    newChecksum\n  }\n}];"
+      }
+    },
+    {
+      "id": "read-checksum",
+      "name": "Postgres: Read Current Checksum",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [680, 300],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT sheets_row_checksum, publication_status, last_edited_by, last_edited_at FROM lessons WHERE lesson_id = $1",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$json.lessonID]) }}"
+        }
+      }
+    },
+    {
+      "id": "check-checksum",
+      "name": "IF: Checksum Changed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [900, 300],
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $('Postgres: Read Current Checksum').first().json.sheets_row_checksum || '' }}",
+              "operation": "notEqual",
+              "value2": "={{ $('Parse Edit Payload').first().json.newChecksum }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-no-change",
+      "name": "Respond: No Change",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 480],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"message\": \"no change detected\" }",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    },
+    {
+      "id": "check-locked-fields",
+      "name": "Check Locked Fields",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300],
+      "parameters": {
+        "jsCode": "// Fields that are locked and cannot be edited after publication\nconst LOCKED_ALWAYS = ['lesson_id', 'submit_command'];\nconst LOCKED_WHEN_PUBLISHED = ['publication_status'];\n\nconst changedFields = $('Parse Edit Payload').first().json.changedFields || [];\nconst publicationStatus = $('Postgres: Read Current Checksum').first().json.publication_status || 'DRAFT';\nconst lessonID = $('Parse Edit Payload').first().json.lessonID;\nconst editedBy = $('Parse Edit Payload').first().json.editedBy;\n\nconst violations = [];\n\nfor (const field of changedFields) {\n  if (LOCKED_ALWAYS.includes(field)) {\n    violations.push({ field, reason: 'Always locked' });\n  }\n  if (publicationStatus === 'PUBLISHED' && LOCKED_WHEN_PUBLISHED.includes(field)) {\n    violations.push({ field, reason: 'Locked when PUBLISHED' });\n  }\n}\n\nreturn [{\n  json: {\n    lessonID,\n    editedBy,\n    changedFields,\n    publicationStatus,\n    hasViolations: violations.length > 0,\n    violations\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-lock-violation",
+      "name": "IF: Lock Violation?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1340, 300],
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.hasViolations }}",
+              "value2": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "alert-lock-violation",
+      "name": "HTTP: Alert Lock Violation to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1560, 200],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_ADMIN_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "🔒 Lock Violation — {{ $json.lessonID }}"
+              }
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Edited by:* {{ $json.editedBy }}\n*Status:* {{ $json.publicationStatus }}\n*Violations:* {{ JSON.stringify($json.violations) }}"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-lock-violation",
+      "name": "Respond: Lock Violation",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1780, 200],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"rejected\", \"message\": \"locked field modification denied\" }",
+        "options": {
+          "responseCode": 403
+        }
+      }
+    },
+    {
+      "id": "update-edit-metadata",
+      "name": "Postgres: Update Edit Metadata",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1560, 380],
+      "credentials": {
+        "postgres": {
+          "name": "RWR LMS Postgres"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE lessons SET last_edited_by = $1, last_edited_at = $2, sheets_row_checksum = $3, updated_at = NOW() WHERE lesson_id = $4",
+        "additionalFields": {
+          "queryParams": "={{ JSON.stringify([$('Parse Edit Payload').first().json.editedBy, $('Parse Edit Payload').first().json.timestamp, $('Parse Edit Payload').first().json.newChecksum, $('Parse Edit Payload').first().json.lessonID]) }}"
+        }
+      }
+    },
+    {
+      "id": "trigger-agent-17",
+      "name": "Execute Workflow: Agent 17 Gemini Re-Tester",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1,
+      "position": [1780, 380],
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "a17GeminiRetester01",
+          "mode": "id"
+        },
+        "options": {
+          "waitForSubWorkflow": true
+        },
+        "workflowInputs": {
+          "schema": [
+            {
+              "name": "lessonID",
+              "type": "string"
+            },
+            {
+              "name": "changedFields",
+              "type": "array"
+            },
+            {
+              "name": "editedBy",
+              "type": "string"
+            }
+          ],
+          "value": {
+            "lessonID": "={{ $('Parse Edit Payload').first().json.lessonID }}",
+            "changedFields": "={{ $('Parse Edit Payload').first().json.changedFields }}",
+            "editedBy": "={{ $('Parse Edit Payload').first().json.editedBy }}"
+          }
+        }
+      }
+    },
+    {
+      "id": "post-edit-alert",
+      "name": "HTTP: Post Edit Alert to Slack",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [2000, 380],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SLACK_ADMIN_WEBHOOK_URL }}",
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "blocks": [
+            {
+              "type": "header",
+              "text": {
+                "type": "plain_text",
+                "text": "✏️ Lesson Edited — {{ $('Parse Edit Payload').first().json.lessonID }}"
+              }
+            },
+            {
+              "type": "section",
+              "fields": [
+                {
+                  "type": "mrkdwn",
+                  "text": "*Edited by:*\n{{ $('Parse Edit Payload').first().json.editedBy }}"
+                },
+                {
+                  "type": "mrkdwn",
+                  "text": "*Timestamp:*\n{{ $('Parse Edit Payload').first().json.timestamp }}"
+                }
+              ]
+            },
+            {
+              "type": "section",
+              "text": {
+                "type": "mrkdwn",
+                "text": "*Changed fields:* {{ $('Parse Edit Payload').first().json.changedFields.join(', ') }}\n*New QA Score:* {{ $('Execute Workflow: Agent 17 Gemini Re-Tester').first().json?.new_score ?? 'N/A' }} (was {{ $('Execute Workflow: Agent 17 Gemini Re-Tester').first().json?.old_score ?? 'N/A' }})\n*Verdict:* {{ $('Execute Workflow: Agent 17 Gemini Re-Tester').first().json?.new_verdict ?? 'N/A' }}"
+              }
+            },
+            {
+              "type": "actions",
+              "elements": [
+                {
+                  "type": "button",
+                  "text": {
+                    "type": "plain_text",
+                    "text": "View in Sheets"
+                  },
+                  "url": "https://docs.google.com/spreadsheets/d/{{ $env.LESSONS_SHEET_ID }}/edit"
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "respond-success",
+      "name": "Respond: 200 OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2220, 380],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\", \"message\": \"edit processed\" }",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook: Lesson Edit": {
+      "main": [
+        [
+          {
+            "node": "Parse Edit Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Edit Payload": {
+      "main": [
+        [
+          {
+            "node": "Postgres: Read Current Checksum",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Read Current Checksum": {
+      "main": [
+        [
+          {
+            "node": "IF: Checksum Changed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Checksum Changed?": {
+      "main": [
+        [
+          {
+            "node": "Check Locked Fields",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond: No Change",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Locked Fields": {
+      "main": [
+        [
+          {
+            "node": "IF: Lock Violation?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF: Lock Violation?": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Alert Lock Violation to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Postgres: Update Edit Metadata",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Alert Lock Violation to Slack": {
+      "main": [
+        [
+          {
+            "node": "Respond: Lock Violation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres: Update Edit Metadata": {
+      "main": [
+        [
+          {
+            "node": "Execute Workflow: Agent 17 Gemini Re-Tester",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Execute Workflow: Agent 17 Gemini Re-Tester": {
+      "main": [
+        [
+          {
+            "node": "HTTP: Post Edit Alert to Slack",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP: Post Edit Alert to Slack": {
+      "main": [
+        [
+          {
+            "node": "Respond: 200 OK",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": ["content-factory", "agent-16"],
+  "triggerCount": 2,
+  "updatedAt": "2026-01-01T00:00:00.000Z",
+  "createdAt": "2026-01-01T00:00:00.000Z"
+}

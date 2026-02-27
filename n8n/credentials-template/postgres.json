@@ -1,0 +1,14 @@
+{
+  "name": "RWR LMS Postgres",
+  "type": "postgres",
+  "data": {
+    "host": "postgres",
+    "port": 5432,
+    "database": "n8n",
+    "user": "n8n",
+    "password": "REPLACE_WITH_POSTGRES_PASSWORD",
+    "ssl": false,
+    "sshTunnel": false,
+    "allowUnauthorizedCerts": false
+  }
+}
