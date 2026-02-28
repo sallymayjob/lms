@@ -34,8 +34,8 @@ services:
       # N8N Core
       N8N_HOST: ${DOMAIN}
       N8N_PORT: 5678
-      N8N_PROTOCOL: https
-      WEBHOOK_URL: https://${DOMAIN}/
+      N8N_PROTOCOL: http
+      WEBHOOK_URL: http://${DOMAIN}/
       N8N_ENCRYPTION_KEY: ${N8N_ENCRYPTION_KEY}
       GENERIC_TIMEZONE: ${GENERIC_TIMEZONE:-Pacific/Auckland}
 
@@ -95,22 +95,8 @@ services:
         condition: service_healthy
     ports:
       - "80:80"
-      - "443:443"
-    # Auto-generate a self-signed cert on first start if no cert is present.
-    # On subsequent starts the cert already exists and this is a no-op.
-    # Replace with a real Let's Encrypt cert using certbot (see DEPLOYMENT.md).
-    command: >-
-      sh -c "
-        apk add --no-cache openssl >/dev/null 2>&1 &&
-        if [ ! -f /etc/nginx/ssl/fullchain.pem ]; then
-          openssl req -x509 -nodes -days 365 -newkey rsa:2048 -keyout /etc/nginx/ssl/privkey.pem -out /etc/nginx/ssl/fullchain.pem -subj '/CN=localhost' >/dev/null 2>&1 &&
-          echo '[nginx-init] Self-signed cert generated — replace with certbot for production';
-        fi &&
-        exec nginx -g 'daemon off;'
-      "
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl
     networks:
       - lms-network
 

@@ -34,9 +34,14 @@ N8N_PID=$!
 
 # ─── Wait for n8n to be ready ─────────────────────────────────────────────────
 info "Waiting for n8n API to be ready..."
-MAX_WAIT=120
+MAX_WAIT=300
 elapsed=0
 until curl -sf "${N8N_API_URL}/healthz" > /dev/null 2>&1; do
+  # Detect an early n8n process crash immediately rather than waiting MAX_WAIT
+  if ! kill -0 $N8N_PID 2>/dev/null; then
+    err "n8n process (PID $N8N_PID) exited unexpectedly — see logs above"
+    exit 1
+  fi
   if [[ $elapsed -ge $MAX_WAIT ]]; then
     err "n8n did not become ready within ${MAX_WAIT}s"
     exit 1
