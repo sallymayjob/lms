@@ -41,6 +41,9 @@ services:
       N8N_BASIC_AUTH_ACTIVE: ${N8N_BASIC_AUTH_ACTIVE:-true}
       N8N_BASIC_AUTH_USER: ${N8N_BASIC_AUTH_USER}
       N8N_BASIC_AUTH_PASSWORD: ${N8N_BASIC_AUTH_PASSWORD}
+      N8N_SECURE_COOKIE: "false"
+      N8N_USER_MANAGEMENT_DISABLED: "true"
+      N8N_LOG_LEVEL: info
 
       # Database
       DB_TYPE: postgresdb
@@ -49,6 +52,7 @@ services:
       DB_POSTGRESDB_PORT: 5432
       DB_POSTGRESDB_USER: ${POSTGRES_USER}
       DB_POSTGRESDB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_POSTGRESDB_SSL_REJECT_UNAUTHORIZED: "false"
 
       # Slack
       SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
@@ -75,8 +79,8 @@ services:
       test: ["CMD-SHELL", "curl -sf http://localhost:5678/healthz || exit 1"]
       interval: 15s
       timeout: 10s
-      retries: 8
-      start_period: 60s
+      retries: 12
+      start_period: 180s
     networks:
       - lms-network
 

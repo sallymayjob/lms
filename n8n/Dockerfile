@@ -12,3 +12,16 @@ RUN apt-get update && apt-get install -y \
  && rm -rf /var/lib/apt/lists/*
 
 USER node
+
+# Copy pre-import workflows into the image
+COPY workflows/ /home/node/workflows/
+
+# Copy entrypoint script
+COPY entrypoint.sh /entrypoint.sh
+
+# Ensure entrypoint is executable (git may not preserve +x bit)
+USER root
+RUN chmod +x /entrypoint.sh
+USER node
+
+ENTRYPOINT ["/entrypoint.sh"]
