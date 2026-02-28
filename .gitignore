@@ -1,1 +1,12 @@
 scripts/__pycache__/
+
+# Secrets — never commit
+.env
+
+# SSL certificates — generated on server by certbot or self-signed bootstrap
+nginx/ssl/*.pem
+nginx/ssl/*.crt
+nginx/ssl/*.key
+
+# Local database backups
+postgres/backup/dumps/
