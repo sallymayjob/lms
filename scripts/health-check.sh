@@ -55,7 +55,7 @@ check_container "rwr-lms-nginx"
 # ─── n8n API health ──────────────────────────────────────────────────────────
 header "n8n API Health"
 
-if curl -sf --max-time 5 "http://localhost:5678/healthz" > /dev/null 2>&1; then
+if docker compose exec -T n8n curl -sf --max-time 5 "http://localhost:5678/healthz" > /dev/null 2>&1; then
   ok "n8n API: /healthz responding"
 else
   fail "n8n API: /healthz not responding"
@@ -117,15 +117,11 @@ fi
 # ─── n8n workflow count ────────────────────────────────────────────────────
 header "n8n Workflow Status"
 
-WORKFLOW_COUNT=$(curl -sf \
-  -H "Authorization: Basic ${N8N_AUTH}" \
-  "http://localhost:5678/api/v1/workflows" 2>/dev/null | \
+WORKFLOW_COUNT=$(docker compose exec -T n8n sh -c "curl -sf -H 'Authorization: Basic ${N8N_AUTH}' 'http://localhost:5678/api/v1/workflows'" 2>/dev/null | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',[])))" \
   2>/dev/null || echo "0")
 
-ACTIVE_COUNT=$(curl -sf \
-  -H "Authorization: Basic ${N8N_AUTH}" \
-  "http://localhost:5678/api/v1/workflows?active=true" 2>/dev/null | \
+ACTIVE_COUNT=$(docker compose exec -T n8n sh -c "curl -sf -H 'Authorization: Basic ${N8N_AUTH}' 'http://localhost:5678/api/v1/workflows?active=true'" 2>/dev/null | \
   python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('data',[])))" \
   2>/dev/null || echo "0")
 

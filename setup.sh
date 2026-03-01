@@ -317,7 +317,7 @@ wait_for_service "postgres" \
   "docker compose exec -T postgres pg_isready -U ${POSTGRES_USER:-n8n} -d ${POSTGRES_DB:-n8n}"
 
 wait_for_service "n8n" \
-  "curl -sf http://localhost:5678/healthz"
+  "docker compose exec -T n8n curl -sf http://localhost:5678/healthz"
 
 # Wait a bit more for n8n to finish internal setup
 sleep 5
@@ -341,9 +341,7 @@ N8N_AUTH=$(echo -n "${N8N_BASIC_AUTH_USER}:${N8N_BASIC_AUTH_PASSWORD}" | base64)
 N8N_API="http://localhost:5678/api/v1"
 
 # Get all workflow IDs
-WORKFLOW_IDS=$(curl -sf \
-  -H "Authorization: Basic ${N8N_AUTH}" \
-  "${N8N_API}/workflows" | python3 -c "
+WORKFLOW_IDS=$(docker compose exec -T n8n sh -c "curl -sf -H 'Authorization: Basic ${N8N_AUTH}' '${N8N_API}/workflows'" | python3 -c "
 import sys, json
 data = json.load(sys.stdin)
 ids = [str(w['id']) for w in data.get('data', [])]
@@ -353,11 +351,7 @@ print(' '.join(ids))
 activated=0
 failed=0
 for wf_id in $WORKFLOW_IDS; do
-  if curl -sf -X PATCH \
-    -H "Authorization: Basic ${N8N_AUTH}" \
-    -H "Content-Type: application/json" \
-    -d '{"active": true}' \
-    "${N8N_API}/workflows/${wf_id}" > /dev/null; then
+  if docker compose exec -T n8n sh -c "curl -sf -X PATCH -H 'Authorization: Basic ${N8N_AUTH}' -H 'Content-Type: application/json' -d '{\"active\": true}' '${N8N_API}/workflows/${wf_id}'" > /dev/null; then
     activated=$((activated + 1))
   else
     warn "Failed to activate workflow ID ${wf_id}"
