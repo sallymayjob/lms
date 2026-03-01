@@ -20,7 +20,10 @@ services:
       - lms-network
 
   n8n:
-    image: n8nio/n8n:latest
+    build:
+      context: ./n8n
+      dockerfile: Dockerfile
+    image: rwr-lms-n8n:local
     container_name: rwr-lms-n8n
     restart: unless-stopped
     depends_on:
